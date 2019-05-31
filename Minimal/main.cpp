@@ -709,13 +709,19 @@ public:
   }
 };
 
+
+
+#include "rpc/client.h"
+
 // An example application that renders a simple cube
 class ExampleApp : public RiftApp
 {
   std::shared_ptr<Scene> scene;
+  rpc::client client;
 
 public:
-  ExampleApp()
+  ExampleApp():
+	  client("localhost", 8080)
   {
   }
 
@@ -732,6 +738,11 @@ protected:
   void shutdownGl() override
   {
     scene.reset();
+  }
+
+  void update() override
+  {
+	  client.call("ping");
   }
 
   void renderScene(const glm::mat4& projection, const glm::mat4& headPose) override
