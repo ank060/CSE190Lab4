@@ -670,59 +670,122 @@ class Scene
   std::vector<glm::mat4> instance_positions;
   GLuint instanceCount;
   GLuint shaderID;
-
   GLuint sphereShaderID;
+  GLuint cubeShaderID;
 
   std::unique_ptr<Sphere> sphere;
-  std::unique_ptr<TexturedCube> cube;
+  std::unique_ptr<TexturedCube> texturedCube;
+  std::unique_ptr<Cube> cube;
   std::unique_ptr<Skybox> skybox;
 
-  const unsigned int GRID_SIZE{5};
-
+  const unsigned int GRID_SIZE { 5 };
+  const float SPHERE_OFFSET = 0.28F;
+  const float SPHERE_SIZE = 0.6F;
+ 
 public:
+	glm::mat4 playerLeftHand;
+	glm::mat4 playerRightHand;
+	glm::mat4 otherHead;
+	glm::mat4 otherLeftHand;
+	glm::mat4 otherRightHand;
+
   Scene()
   {
-    // Create two cube
-	instance_positions.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, -0.3)));
-	instance_positions.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, -0.9)));
+		// Setup sphere grid
+		for (unsigned int i = 0; i < GRID_SIZE; ++i)
+		{
+			for (unsigned int j = 0; j < GRID_SIZE; ++j)
+			{
+				for (unsigned int k = 0; k < GRID_SIZE; ++k)
+				{
+					float xpos = ((float)i - GRID_SIZE / 2.0F) * SPHERE_OFFSET;
+					float ypos = ((float)j - GRID_SIZE / 2.0F) * SPHERE_OFFSET;
+					float zpos = ((float)k - GRID_SIZE / 2.0F) * SPHERE_OFFSET;
+					instance_positions.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(xpos, ypos, zpos)) * glm::scale(glm::mat4(1.0F), glm::vec3(SPHERE_SIZE)));
+				}
+			}
+		}
 
     instanceCount = instance_positions.size();
 
     // Skybox Shader Program 
     shaderID = LoadShaders("skybox.vert", "skybox.frag");
+	// Cube Shader Program
+	cubeShaderID = LoadShaders("shader.vert", "shader.frag");
+	// Sphere Shader Program
+	sphereShaderID = LoadShaders("sphere.vert", "sphere.frag");
 
 	// Cube
-    cube = std::make_unique<TexturedCube>("cube"); 
+    texturedCube = std::make_unique<TexturedCube>("cube");
+	cube = std::make_unique<Cube>();
 
 	// SkyBox
 	// 10m wide sky box: size doesn't matter though
     skybox = std::make_unique<Skybox>("skybox");
 	skybox->toWorld = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
 
-	// Sphere Shader Program
-	sphereShaderID = LoadShaders("sphere.vert", "sphere.frag");
-
 	// Sphere
 	sphere = std::make_unique<Sphere>();
   }
 
+  void renderPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, const glm::mat4& headTransformation)
+  {
+	  renderHeadlessPlayer(projection, view, leftHandTransformation, rightHandTransformation);
+
+	  glUseProgram(cubeShaderID);
+
+	  // Render head
+	  cube->toWorld = headTransformation;
+	  cube->draw(cubeShaderID, projection, view);
+  }
+  
+  void renderHeadlessPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation)
+  {
+	  glUseProgram(sphereShaderID);
+
+	  // Render Current Player
+	  // ... render left hand ...
+	  cube->toWorld = playerLeftHand;
+	  // Color = BLUE
+	  glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0, 1);
+	  cube->draw(sphereShaderID, projection, view);
+
+	  // ... render right hand ...
+	  cube->toWorld = playerRightHand;
+	  // Color = RED
+	  glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 0, 0);
+	  cube->draw(sphereShaderID, projection, view);
+  }
+
+  void renderPlayers(const glm::mat4& projection, const glm::mat4& view)
+  {
+	  // Render Other Player
+	  renderPlayer(projection, view, otherLeftHand, otherRightHand, otherHead);
+	  // Render Current Player
+	  renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand);
+  }
+
   void render(const glm::mat4& projection, const glm::mat4& view)
   {
+	  glEnable(GL_DEPTH_TEST);
+	  glDisable(GL_CULL_FACE);
+
     // Render two cubes
+	  glUseProgram(sphereShaderID);
+	  glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 1, 1);
     for (int i = 0; i < instanceCount; i++)
     {
       // Scale to 20cm: 200cm * 0.1
       sphere->toWorld = instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 	  sphere->draw(sphereShaderID, projection, view);
-	  glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 0 ,0);
     }
+
+	renderPlayers(projection, view);
 
     // Render Skybox : remove view translation
     skybox->draw(shaderID, projection, view);
   }
 };
-
-
 
 #include "rpc/client.h"
 
@@ -731,66 +794,129 @@ public:
 // An example application that renders a simple cube
 class ExampleApp : public RiftApp
 {
-  std::shared_ptr<Scene> scene;
-  rpc::client client;
+	std::shared_ptr<Scene> scene;
+	rpc::client client;
 
-  PlayerData player;
-  PlayerData otherPlayer;
+	std::mutex mtx;
+	std::thread networkThread;
+	std::atomic<bool> networkRunning;
+
+	PlayerData player;
+	PlayerData _otherPlayer;
+
+	const float HEAD_SIZE = 0.12F;
+	const float HAND_SIZE = 0.084F;
 
 public:
-  ExampleApp():
-	  client("localhost", 8080)
-  {
-	  unsigned int playerID = client.call("connect").as<unsigned int>();
-	  player = PlayerData{ playerID };
+	ExampleApp() :
+		client("localhost", 8080)
+	{
+		unsigned int playerID = client.call("connect").as<unsigned int>();
+		player = PlayerData{ playerID };
 
-	  std::cout << "Connected! PlayerID: " << playerID << std::endl;
-  }
+		std::cout << "Connected! PlayerID: " << playerID << std::endl;
+
+		//networkRunning = true;
+		//networkThread = std::thread(&ExampleApp::runNetworkUpdate);
+	}
+	~ExampleApp()
+	{
+		//networkRunning = false;
+		//networkThread.join();
+	}
 
 protected:
-  void initGl() override
-  {
-    RiftApp::initGl();
-    glClearColor(0.2f, 0.2f, 0.2f, 0.0f);
-    glEnable(GL_DEPTH_TEST);
-    ovr_RecenterTrackingOrigin(_session);
-    scene = std::shared_ptr<Scene>(new Scene());
-  }
+	void initGl() override
+	{
+		RiftApp::initGl();
+		glClearColor(0.2f, 0.2f, 0.2f, 0.0f);
+		glEnable(GL_DEPTH_TEST);
+		ovr_RecenterTrackingOrigin(_session);
+		scene = std::shared_ptr<Scene>(new Scene());
+	}
 
-  void shutdownGl() override
-  {
-    scene.reset();
-  }
+	void shutdownGl() override
+	{
+		scene.reset();
+	}
 
-  void updatePlayer()
-  {
-	  // Hand & Head Positions
-	  const double displayMidpointSeconds = ovr_GetPredictedDisplayTime(_session, frame);
-	  const ovrTrackingState trackState = ovr_GetTrackingState(_session, displayMidpointSeconds, ovrTrue);
-	  auto leftHandPose = trackState.HandPoses[ovrHand_Left].ThePose;
-	  auto rightHandPose = trackState.HandPoses[ovrHand_Right].ThePose;
-	  auto headPose = trackState.HeadPose.ThePose;
+	void updatePlayers()
+	{
+		// Hand & Head Positions
+		const double displayMidpointSeconds = ovr_GetPredictedDisplayTime(_session, frame);
+		const ovrTrackingState trackState = ovr_GetTrackingState(_session, displayMidpointSeconds, ovrTrue);
+		auto leftHandPose = trackState.HandPoses[ovrHand_Left].ThePose;
+		auto rightHandPose = trackState.HandPoses[ovrHand_Right].ThePose;
+		auto headPose = trackState.HeadPose.ThePose;
 
-	  player.leftHandPosition = ovr::toGlm(leftHandPose.Position);
-	  player.rightHandPosition = ovr::toGlm(rightHandPose.Position);
-	  player.headPosition = ovr::toGlm(headPose.Position);
+		player.leftHandPosition = ovr::toGlm(leftHandPose.Position);
+		player.rightHandPosition = ovr::toGlm(rightHandPose.Position);
+		player.headPosition = ovr::toGlm(headPose.Position);
 
-	  player.leftHandRotation = ovr::toGlm(leftHandPose.Orientation);
-	  player.rightHandRotation = ovr::toGlm(rightHandPose.Orientation);
-	  player.headRotation = ovr::toGlm(headPose.Orientation);
-  }
+		// Not used, but kept :D
+		player.leftHandRotation = ovr::toGlm(leftHandPose.Orientation);
+		player.rightHandRotation = ovr::toGlm(rightHandPose.Orientation);
+		player.headRotation = ovr::toGlm(headPose.Orientation);
 
-  void update() override
-  {
-	  updatePlayer();
+		//Update the current player transformation matrix
+		const glm::mat4 handScale = glm::scale(glm::mat4(1.0F), glm::vec3(HAND_SIZE));
+		const glm::mat4 headScale = glm::scale(glm::mat4(1.0F), glm::vec3(HEAD_SIZE));
+		scene->playerLeftHand = ovr::toGlm(leftHandPose) * handScale;
+		scene->playerRightHand = ovr::toGlm(rightHandPose) * handScale;
 
-	  client.call("sendUpdate", player);
-  }
+		//Update the other player transformation matrix
+		PlayerData otherPlayer = getOtherPlayer();
+		scene->otherHead = glm::translate(glm::mat4(1.0F), otherPlayer.headPosition) * glm::mat4(otherPlayer.headRotation) * headScale;
+		scene->otherLeftHand = glm::translate(glm::mat4(1.0F), otherPlayer.leftHandPosition) * glm::mat4(otherPlayer.leftHandRotation) * handScale;
+		scene->otherRightHand = glm::translate(glm::mat4(1.0F), otherPlayer.rightHandPosition) * glm::mat4(otherPlayer.rightHandRotation) * handScale;
+	}
 
-  void renderScene(const glm::mat4& projection, const glm::mat4& headPose) override
-  {
-    scene->render(projection, glm::inverse(headPose));
-  }
+	void update() override
+	{
+		updatePlayers();
+
+		client.call("sendUpdate", player);
+	}
+
+	void renderScene(const glm::mat4& projection, const glm::mat4& headPose) override
+	{
+		scene->render(projection, glm::inverse(headPose));
+	}
+
+public:
+	rpc::client& getClient()
+	{
+		return client;
+	}
+
+	PlayerData& getCurrentPlayer()
+	{
+		return player;
+	}
+
+	void updateOtherPlayerData(PlayerData& playerData)
+	{
+		mtx.lock();
+		this->_otherPlayer = playerData;
+		mtx.unlock();
+	}
+
+	PlayerData getOtherPlayer()
+	{
+		PlayerData result;
+		mtx.lock();
+		result = _otherPlayer;
+		mtx.unlock();
+		return result;
+	}
+
+	void runNetworkUpdate()
+	{
+		while (networkRunning) {
+			PlayerData& otherPlayer = client.call("requestUpdate", player.id).as<PlayerData>();
+			updateOtherPlayerData(otherPlayer);
+		}
+	}
 };
 
 // Execute our example class
@@ -802,7 +928,9 @@ int main(int argc, char** argv)
   {
     FAIL("Failed to initialize the Oculus SDK");
   }
-  result = ExampleApp().run();
+
+  ExampleApp app;
+  result = app.run();
 
   ovr_Shutdown();
   return result;
