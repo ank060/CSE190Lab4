@@ -745,13 +745,13 @@ public:
 
 	  // Render Current Player
 	  // ... render left hand ...
-	  cube->toWorld = playerLeftHand;
+	  cube->toWorld = leftHandTransformation;
 	  // Color = BLUE
 	  glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0, 1);
 	  cube->draw(sphereShaderID, projection, view);
 
 	  // ... render right hand ...
-	  cube->toWorld = playerRightHand;
+	  cube->toWorld = rightHandTransformation;
 	  // Color = RED
 	  glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 0, 0);
 	  cube->draw(sphereShaderID, projection, view);
@@ -797,7 +797,7 @@ class ExampleApp : public RiftApp
 	std::shared_ptr<Scene> scene;
 	rpc::client client;
 
-	std::mutex mtx;
+	std::mutex networkMutex;
 	std::thread networkThread;
 	std::atomic<bool> networkRunning;
 
@@ -816,13 +816,13 @@ public:
 
 		std::cout << "Connected! PlayerID: " << playerID << std::endl;
 
-		//networkRunning = true;
-		//networkThread = std::thread(&ExampleApp::runNetworkUpdate);
+		networkRunning = true;
+		networkThread = std::thread(&ExampleApp::runNetworkUpdate, this);
 	}
 	~ExampleApp()
 	{
-		//networkRunning = false;
-		//networkThread.join();
+		networkRunning = false;
+		networkThread.join();
 	}
 
 protected:
@@ -858,9 +858,10 @@ protected:
 		player.rightHandRotation = ovr::toGlm(rightHandPose.Orientation);
 		player.headRotation = ovr::toGlm(headPose.Orientation);
 
-		//Update the current player transformation matrix
 		const glm::mat4 handScale = glm::scale(glm::mat4(1.0F), glm::vec3(HAND_SIZE));
 		const glm::mat4 headScale = glm::scale(glm::mat4(1.0F), glm::vec3(HEAD_SIZE));
+
+		//Update the current player transformation matrix
 		scene->playerLeftHand = ovr::toGlm(leftHandPose) * handScale;
 		scene->playerRightHand = ovr::toGlm(rightHandPose) * handScale;
 
@@ -896,25 +897,30 @@ public:
 
 	void updateOtherPlayerData(PlayerData& playerData)
 	{
-		mtx.lock();
-		this->_otherPlayer = playerData;
-		mtx.unlock();
+		networkMutex.lock();
+		_otherPlayer = playerData;
+		networkMutex.unlock();
 	}
 
 	PlayerData getOtherPlayer()
 	{
 		PlayerData result;
-		mtx.lock();
 		result = _otherPlayer;
-		mtx.unlock();
 		return result;
 	}
 
 	void runNetworkUpdate()
 	{
+		int count = 0;
 		while (networkRunning) {
 			PlayerData& otherPlayer = client.call("requestUpdate", player.id).as<PlayerData>();
 			updateOtherPlayerData(otherPlayer);
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+			if (++count > 200) {
+				std::cout << otherPlayer.headPosition[0] << std::endl;
+				count = 0;
+			}
 		}
 	}
 };
