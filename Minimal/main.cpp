@@ -726,18 +726,25 @@ public:
 
 #include "rpc/client.h"
 
+#include "PlayerData.h"
+
 // An example application that renders a simple cube
 class ExampleApp : public RiftApp
 {
   std::shared_ptr<Scene> scene;
   rpc::client client;
-  int count;
+
+  PlayerData player;
+  PlayerData otherPlayer;
 
 public:
   ExampleApp():
-	  client("localhost", 8080),
-	  count(0)
+	  client("localhost", 8080)
   {
+	  unsigned int playerID = client.call("connect").as<unsigned int>();
+	  player = PlayerData{ playerID };
+
+	  std::cout << "Connected! PlayerID: " << playerID << std::endl;
   }
 
 protected:
@@ -755,9 +762,29 @@ protected:
     scene.reset();
   }
 
+  void updatePlayer()
+  {
+	  // Hand & Head Positions
+	  const double displayMidpointSeconds = ovr_GetPredictedDisplayTime(_session, frame);
+	  const ovrTrackingState trackState = ovr_GetTrackingState(_session, displayMidpointSeconds, ovrTrue);
+	  auto leftHandPose = trackState.HandPoses[ovrHand_Left].ThePose;
+	  auto rightHandPose = trackState.HandPoses[ovrHand_Right].ThePose;
+	  auto headPose = trackState.HeadPose.ThePose;
+
+	  player.leftHandPosition = ovr::toGlm(leftHandPose.Position);
+	  player.rightHandPosition = ovr::toGlm(rightHandPose.Position);
+	  player.headPosition = ovr::toGlm(headPose.Position);
+
+	  player.leftHandRotation = ovr::toGlm(leftHandPose.Orientation);
+	  player.rightHandRotation = ovr::toGlm(rightHandPose.Orientation);
+	  player.headRotation = ovr::toGlm(headPose.Orientation);
+  }
+
   void update() override
   {
-	  client.call("ping", std::to_string(++count));
+	  updatePlayer();
+
+	  client.call("sendUpdate", player);
   }
 
   void renderScene(const glm::mat4& projection, const glm::mat4& headPose) override
