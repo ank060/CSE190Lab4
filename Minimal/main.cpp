@@ -661,6 +661,7 @@ protected:
 #include <vector>
 #include "shader.h"
 #include "Cube.h"
+#include "Sphere.h"
 
 // a class for building and rendering cubes
 class Scene
@@ -670,6 +671,9 @@ class Scene
   GLuint instanceCount;
   GLuint shaderID;
 
+  GLuint sphereShaderID;
+
+  std::unique_ptr<Sphere> sphere;
   std::unique_ptr<TexturedCube> cube;
   std::unique_ptr<Skybox> skybox;
 
@@ -679,19 +683,27 @@ public:
   Scene()
   {
     // Create two cube
-    instance_positions.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, -0.3)));
-    instance_positions.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, -0.9)));
+	instance_positions.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, -0.3)));
+	instance_positions.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, -0.9)));
 
     instanceCount = instance_positions.size();
 
-    // Shader Program 
+    // Skybox Shader Program 
     shaderID = LoadShaders("skybox.vert", "skybox.frag");
 
+	// Cube
     cube = std::make_unique<TexturedCube>("cube"); 
 
-	  // 10m wide sky box: size doesn't matter though
+	// SkyBox
+	// 10m wide sky box: size doesn't matter though
     skybox = std::make_unique<Skybox>("skybox");
-	  skybox->toWorld = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
+	skybox->toWorld = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
+
+	// Sphere Shader Program
+	sphereShaderID = LoadShaders("sphere.vert", "sphere.frag");
+
+	// Sphere
+	sphere = std::make_unique<Sphere>();
   }
 
   void render(const glm::mat4& projection, const glm::mat4& view)
@@ -700,8 +712,9 @@ public:
     for (int i = 0; i < instanceCount; i++)
     {
       // Scale to 20cm: 200cm * 0.1
-      cube->toWorld = instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
-      cube->draw(shaderID, projection, view);
+      sphere->toWorld = instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+	  sphere->draw(sphereShaderID, projection, view);
+	  glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 0 ,0);
     }
 
     // Render Skybox : remove view translation
@@ -718,10 +731,12 @@ class ExampleApp : public RiftApp
 {
   std::shared_ptr<Scene> scene;
   rpc::client client;
+  int count;
 
 public:
   ExampleApp():
-	  client("localhost", 8080)
+	  client("localhost", 8080),
+	  count(0)
   {
   }
 
@@ -742,7 +757,7 @@ protected:
 
   void update() override
   {
-	  client.call("ping");
+	  client.call("ping", std::to_string(++count));
   }
 
   void renderScene(const glm::mat4& projection, const glm::mat4& headPose) override

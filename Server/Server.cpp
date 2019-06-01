@@ -15,8 +15,8 @@ int main()
 	rpc::server srv(PORT);
 	std::cout << "Listening to port: " << PORT << std::endl;
 
-	srv.bind("ping", []() {
-		std::cout << "PING@!" << std::endl;
+	srv.bind("ping", [](std::string count) {
+		std::cout << "PING! " << count << std::endl;
 	});
 
 	// Blocking call to start the server: non-blocking call is srv.async_run(threadsCount);
