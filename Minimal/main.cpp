@@ -748,9 +748,9 @@ public:
 		return result;
 	}
 
-	void renderPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, const glm::mat4& headTransformation)
+	void renderPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, const glm::mat4& headTransformation, bool altColor)
 	{
-		renderHeadlessPlayer(projection, view, leftHandTransformation, rightHandTransformation);
+		renderHeadlessPlayer(projection, view, leftHandTransformation, rightHandTransformation, altColor);
 
 		glUseProgram(cubeShaderID);
 
@@ -759,30 +759,44 @@ public:
 		cube->draw(cubeShaderID, projection, view);
 	}
 
-	void renderHeadlessPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation)
+	void renderHeadlessPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, bool altColor)
 	{
 		glUseProgram(sphereShaderID);
 
 		// Render Current Player
 		// ... render left hand ...
 		cube->toWorld = leftHandTransformation;
-		// Color = BLUE
-		glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0, 1);
+		// Color = GREEN / BLUE
+		if (altColor)
+		{
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0.3, 0);
+		}
+		else
+		{
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0, 0.3);
+		}
 		cube->draw(sphereShaderID, projection, view);
 
 		// ... render right hand ...
 		cube->toWorld = rightHandTransformation;
-		// Color = RED
-		glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 0, 0);
+		// Color = YELLOW / RED
+		if (altColor)
+		{
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.3, 0.3, 0);
+		}
+		else
+		{
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.3, 0, 0);
+		}
 		cube->draw(sphereShaderID, projection, view);
 	}
 
 	void renderPlayers(const glm::mat4& projection, const glm::mat4& view)
 	{
 		// Render Other Player
-		renderPlayer(projection, view, otherLeftHand, otherRightHand, otherHead);
+		renderPlayer(projection, view, otherLeftHand, otherRightHand, otherHead, true);
 		// Render Current Player
-		renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand);
+		renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand, false);
 	}
 
 	void render(const glm::mat4& projection, const glm::mat4& view, unsigned int goalBallIndex)
@@ -800,7 +814,7 @@ public:
 			}
 			else
 			{
-				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 1, 1);
+				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.5, 0.5, 0.5);
 			}
 			// Scale to 20cm: 200cm * 0.1
 			sphere->toWorld = instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
