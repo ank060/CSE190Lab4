@@ -132,8 +132,10 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AudioSystem.cpp" />
     <ClCompile Include="Cube.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="OBJModel.cpp" />
     <ClCompile Include="shader.cpp" />
     <ClCompile Include="Skybox.cpp" />
     <ClCompile Include="Sphere.cpp" />
@@ -151,7 +153,10 @@
   <ItemGroup>
     <ClInclude Include="..\Shared\PlayerData.h" />
     <ClInclude Include="..\Shared\SceneData.h" />
+    <ClInclude Include="audio.h" />
+    <ClInclude Include="AudioSystem.h" />
     <ClInclude Include="Cube.h" />
+    <ClInclude Include="OBJModel.h" />
     <ClInclude Include="shader.h" />
     <ClInclude Include="Skybox.h" />
     <ClInclude Include="Sphere.h" />

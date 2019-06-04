@@ -658,13 +658,11 @@ protected:
 // application would perform whatever rendering you want
 //
 
-#include <AL/al.h>
-#include <AL/alc.h>
-
 #include <vector>
 #include "shader.h"
 #include "Cube.h"
 #include "Sphere.h"
+#include "OBJModel.h"
 
 // a class for building and rendering cubes
 class Scene
@@ -680,6 +678,8 @@ class Scene
 	std::unique_ptr<TexturedCube> texturedCube;
 	std::unique_ptr<Cube> cube;
 	std::unique_ptr<Skybox> skybox;
+
+	std::unique_ptr<OBJModel> character;
 
 	const unsigned int GRID_SIZE{ 5 };
 	const float SPHERE_OFFSET = 0.28F;
@@ -730,6 +730,9 @@ public:
 
 		// Sphere
 		sphere = std::make_unique<Sphere>();
+
+		// Character
+		character = std::make_unique<OBJModel>("./char/astronaut.obj");
 	}
 
 	std::vector<unsigned int> getBallsWithin(glm::vec3 position)
@@ -752,11 +755,12 @@ public:
 	{
 		renderHeadlessPlayer(projection, view, leftHandTransformation, rightHandTransformation, altColor);
 
-		glUseProgram(cubeShaderID);
+		glUseProgram(sphereShaderID);
 
 		// Render head
-		cube->toWorld = headTransformation;
-		cube->draw(cubeShaderID, projection, view);
+		glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0.3, 0.3);
+		character->toWorld = headTransformation;
+		character->draw(sphereShaderID, projection, view);
 	}
 
 	void renderHeadlessPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, bool altColor)
@@ -830,6 +834,8 @@ public:
 
 #include "rpc/client.h"
 
+#include "AudioSystem.h"
+
 #include "PlayerData.h"
 #include "SceneData.h"
 
@@ -838,6 +844,7 @@ class ExampleApp : public RiftApp
 {
 	std::shared_ptr<Scene> scene;
 	rpc::client client;
+	AudioSystem audioSystem;
 
 	/*
 	// Multi-threaded stuff.
@@ -859,7 +866,7 @@ class ExampleApp : public RiftApp
 	bool rightHandTrigger;
 	bool rightIndexTrigger;
 
-	const float HEAD_SIZE = 0.12F;
+	const float HEAD_SIZE = 0.012F;
 	const float HAND_SIZE = 0.084F;
 
 public:
@@ -883,6 +890,9 @@ public:
 		leftIndexTrigger = false;
 		rightHandTrigger = false;
 		rightIndexTrigger = false;
+
+
+		audioSystem.playGoalSound();
 	}
 	~ExampleApp()
 	{
@@ -940,6 +950,8 @@ protected:
 	void performTouchGoal(unsigned int touchedBall)
 	{
 		client.async_call("touchBall", player.id, touchedBall);
+
+		audioSystem.playGoalSound();
 	}
 
 	void performAction(glm::vec3 handPosition)
