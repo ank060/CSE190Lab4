@@ -658,6 +658,9 @@ protected:
 // application would perform whatever rendering you want
 //
 
+#include <AL/al.h>
+#include <AL/alc.h>
+
 #include <vector>
 #include "shader.h"
 #include "Cube.h"
@@ -681,6 +684,7 @@ class Scene
   const unsigned int GRID_SIZE { 5 };
   const float SPHERE_OFFSET = 0.28F;
   const float SPHERE_SIZE = 0.6F;
+  const float COLLISION_RADIUS = 0.15F;
  
 public:
 	glm::mat4 playerLeftHand;
@@ -728,6 +732,22 @@ public:
 	sphere = std::make_unique<Sphere>();
   }
 
+  std::vector<unsigned int> getBallsWithin(glm::vec3 position)
+  {
+	  // Gets the ball index at position within radius.
+	  std::vector<unsigned int> result;
+	  for (unsigned int i = 0; i < instance_positions.size(); ++i)
+	  {
+		  glm::mat4& ballMatrix = instance_positions[i];
+		  glm::vec3 ballPosition(ballMatrix[3]);
+		  if (glm::distance(position, ballPosition) < COLLISION_RADIUS)
+		  {
+			  result.push_back(i);
+		  }
+	  }
+	  return result;
+  }
+
   void renderPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, const glm::mat4& headTransformation)
   {
 	  renderHeadlessPlayer(projection, view, leftHandTransformation, rightHandTransformation);
@@ -765,19 +785,26 @@ public:
 	  renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand);
   }
 
-  void render(const glm::mat4& projection, const glm::mat4& view)
+  void render(const glm::mat4& projection, const glm::mat4& view, unsigned int goalBallIndex)
   {
 	  glEnable(GL_DEPTH_TEST);
 	  glDisable(GL_CULL_FACE);
 
-    // Render two cubes
+    // Render balls
 	  glUseProgram(sphereShaderID);
-	  glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 1, 1);
     for (int i = 0; i < instanceCount; i++)
     {
-      // Scale to 20cm: 200cm * 0.1
-      sphere->toWorld = instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
-	  sphere->draw(sphereShaderID, projection, view);
+		if (i == goalBallIndex)
+		{
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0, 0);
+		}
+		else
+		{
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 1, 1, 1);
+		}
+		  // Scale to 20cm: 200cm * 0.1
+		  sphere->toWorld = instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+		  sphere->draw(sphereShaderID, projection, view);
     }
 
 	renderPlayers(projection, view);
@@ -790,6 +817,7 @@ public:
 #include "rpc/client.h"
 
 #include "PlayerData.h"
+#include "SceneData.h"
 
 // An example application that renders a simple cube
 class ExampleApp : public RiftApp
@@ -797,12 +825,25 @@ class ExampleApp : public RiftApp
 	std::shared_ptr<Scene> scene;
 	rpc::client client;
 
+	/*
+	// Multi-threaded stuff.
 	std::mutex networkMutex;
 	std::thread networkThread;
 	std::atomic<bool> networkRunning;
+	*/
 
 	PlayerData player;
 	PlayerData _otherPlayer;
+	unsigned int goalBallIndex;
+
+	bool aButton;
+	bool bButton;
+	bool xButton;
+	bool yButton;
+	bool leftHandTrigger;
+	bool leftIndexTrigger;
+	bool rightHandTrigger;
+	bool rightIndexTrigger;
 
 	const float HEAD_SIZE = 0.12F;
 	const float HAND_SIZE = 0.084F;
@@ -816,13 +857,24 @@ public:
 
 		std::cout << "Connected! PlayerID: " << playerID << std::endl;
 
-		networkRunning = true;
-		networkThread = std::thread(&ExampleApp::runNetworkUpdate, this);
+		// Multi-threaded stuff.
+		// networkRunning = true;
+		// networkThread = std::thread(&ExampleApp::runNetworkUpdate, this);
+
+		aButton = false;
+		bButton = false;
+		xButton = false;
+		yButton = false;
+		leftHandTrigger = false;
+		leftIndexTrigger = false;
+		rightHandTrigger = false;
+		rightIndexTrigger = false;
 	}
 	~ExampleApp()
 	{
-		networkRunning = false;
-		networkThread.join();
+		// Multi-threaded stuff.
+		// networkRunning = false;
+		// networkThread.join();
 	}
 
 protected:
@@ -853,7 +905,6 @@ protected:
 		player.rightHandPosition = ovr::toGlm(rightHandPose.Position);
 		player.headPosition = ovr::toGlm(headPose.Position);
 
-		// Not used, but kept :D
 		player.leftHandRotation = ovr::toGlm(leftHandPose.Orientation);
 		player.rightHandRotation = ovr::toGlm(rightHandPose.Orientation);
 		player.headRotation = ovr::toGlm(headPose.Orientation);
@@ -872,16 +923,187 @@ protected:
 		scene->otherRightHand = glm::translate(glm::mat4(1.0F), otherPlayer.rightHandPosition) * glm::mat4(otherPlayer.rightHandRotation) * handScale;
 	}
 
+	void performTouchGoal(unsigned int touchedBall)
+	{
+		client.async_call("touchBall", player.id, touchedBall);
+	}
+
+	void performAction(glm::vec3 handPosition)
+	{
+		// Get all the touched balls.
+		std::vector<unsigned int> touchedBalls = scene->getBallsWithin(handPosition);
+		
+		// Check if any of the touched balls are GOLDEN!
+		for (auto it = touchedBalls.begin(), et = touchedBalls.end(); it != et; ++it)
+		{
+			if (goalBallIndex == *it)
+			{
+				performTouchGoal(goalBallIndex);
+				break;
+			}
+		}
+	}
+
+	void updateInput()
+	{
+		//Input state
+		ovrInputState inputState;
+		if (OVR_SUCCESS(ovr_GetInputState(_session, ovrControllerType_Touch, &inputState)))
+		{
+			//Handle B button being pressed
+			if (inputState.Buttons & ovrButton_B)
+			{
+				if (!bButton)
+				{
+					// Handle button action...
+					performAction(glm::vec3(scene->playerRightHand[3]));
+					bButton = true;
+				}
+			}
+			else
+			{
+				bButton = false;
+			}
+
+			//Handle A button being pressed
+			if (inputState.Buttons & ovrButton_A)
+			{
+				if (!aButton)
+				{
+					// Handle button action...
+					performAction(glm::vec3(scene->playerRightHand[3]));
+					aButton = true;
+				}
+			}
+			else
+			{
+				aButton = false;
+			}
+
+			//Handle X button being pressed
+			if (inputState.Buttons & ovrButton_X)
+			{
+				if (!xButton)
+				{
+					// Handle button action...
+					performAction(glm::vec3(scene->playerLeftHand[3]));
+					xButton = true;
+				}
+			}
+			else
+			{
+				xButton = false;
+			}
+
+			//Handle Y button being pressed
+			if (inputState.Buttons & ovrButton_Y)
+			{
+				if (!yButton)
+				{
+					// Handle button action...
+					performAction(glm::vec3(scene->playerLeftHand[3]));
+					yButton = true;
+				}
+			}
+			else
+			{
+				yButton = false;
+			}
+
+			//Handle right hand trigger button being pressed
+			if (inputState.HandTrigger[1] >= 0.5)
+			{
+				if (!rightHandTrigger)
+				{
+					// Handle button action...
+					performAction(glm::vec3(scene->playerRightHand[3]));
+					rightHandTrigger = true;
+				}
+			}
+			else
+			{
+				rightHandTrigger = false;
+			}
+
+			//Handle right index trigger button being pressed
+			if (inputState.IndexTrigger[1] >= 0.5)
+			{
+				if (!rightIndexTrigger)
+				{
+					// Handle button action...
+					performAction(glm::vec3(scene->playerRightHand[3]));
+					rightIndexTrigger = true;
+				}
+			}
+			else
+			{
+				rightIndexTrigger = false;
+			}
+
+			//Handle left hand trigger button being pressed
+			if (inputState.HandTrigger[0] >= 0.5)
+			{
+				if (!leftHandTrigger)
+				{
+					// Handle button action...
+					performAction(glm::vec3(scene->playerLeftHand[3]));
+					leftHandTrigger = true;
+				}
+			}
+			else
+			{
+				leftHandTrigger = false;
+			}
+
+			//Handle left index trigger button being pressed
+			if (inputState.IndexTrigger[0] >= 0.5)
+			{
+				if (!leftIndexTrigger)
+				{
+					// Handle button action...
+					performAction(glm::vec3(scene->playerLeftHand[3]));
+					leftIndexTrigger = true;
+				}
+			}
+			else
+			{
+				leftIndexTrigger = false;
+			}
+
+			/*
+			// If you want thumbsticks....
+
+			//Handle left thumbstick range
+			float leftXValue = inputState.Thumbstick[0].x / 1000.0;
+			float leftYValue = inputState.Thumbstick[0].y / 1000.0;
+			scene->moveCube(leftXValue, leftYValue, 0);
+
+			//Handle right thumbstick range
+			float rightXValue = inputState.Thumbstick[1].x / 1000.0;
+			float rightYValue = inputState.Thumbstick[1].y / 1000.0;
+			scene->moveCube(0, 0, rightYValue);
+			scene->scaleCube(rightXValue);
+			*/
+		}
+	}
+
 	void update() override
 	{
+		// Sync with network (for single-threaded app)
+		runNetworkUpdate();
+
+		// Update player with network
 		updatePlayers();
+
+		// Handle collision
+		updateInput();
 
 		client.call("sendUpdate", player);
 	}
 
 	void renderScene(const glm::mat4& projection, const glm::mat4& headPose) override
 	{
-		scene->render(projection, glm::inverse(headPose));
+		scene->render(projection, glm::inverse(headPose), goalBallIndex);
 	}
 
 public:
@@ -895,33 +1117,43 @@ public:
 		return player;
 	}
 
-	void updateOtherPlayerData(PlayerData& playerData)
-	{
-		networkMutex.lock();
-		_otherPlayer = playerData;
-		networkMutex.unlock();
-	}
-
 	PlayerData getOtherPlayer()
 	{
 		PlayerData result;
+
+		// Multi-threaded stuff.
+		// networkMutex.lock();
+		// networkMutex.unlock();
+
 		result = _otherPlayer;
 		return result;
 	}
 
+	void updateOtherPlayerData(PlayerData& playerData)
+	{
+		// Multi-threaded stuff.
+		// networkMutex.lock();
+		// networkMutex.unlock();
+
+		_otherPlayer = playerData;
+	}
+
+	void updateSceneData(SceneData& sceneData)
+	{
+		goalBallIndex = sceneData.goalBallIndex;
+	}
+
 	void runNetworkUpdate()
 	{
-		int count = 0;
-		while (networkRunning) {
-			PlayerData& otherPlayer = client.call("requestUpdate", player.id).as<PlayerData>();
-			updateOtherPlayerData(otherPlayer);
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		// Multi-threaded stuff.
+		// while (networkRunning) {...}
+		// std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-			if (++count > 200) {
-				std::cout << otherPlayer.headPosition[0] << std::endl;
-				count = 0;
-			}
-		}
+		auto gameState = client.call("requestUpdate", player.id).as<std::pair<PlayerData, SceneData>>();
+		SceneData& sceneData = gameState.second;
+		PlayerData & otherPlayer = gameState.first;
+		updateSceneData(sceneData);
+		updateOtherPlayerData(otherPlayer);
 	}
 };
 
@@ -929,6 +1161,12 @@ public:
 int main(int argc, char** argv)
 {
   int result = -1;
+
+  /*
+  ALCdevice *device;
+  device = alcOpenDevice(NULL);
+  if (!device) return 0;
+  */
 
   if (!OVR_SUCCESS(ovr_Initialize(nullptr)))
   {

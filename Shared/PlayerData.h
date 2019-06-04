@@ -5,6 +5,7 @@
 struct PlayerData
 {
 	unsigned int id;
+	unsigned int score;
 
 	glm::vec3 leftHandPosition;
 	glm::vec3 rightHandPosition;
@@ -15,7 +16,7 @@ struct PlayerData
 	glm::quat headRotation;
 
 	// rpc Macro to generate serialize code for the struct (Note: for glm object, manually specify x,y,z,w)
-	MSGPACK_DEFINE_MAP(id,
+	MSGPACK_DEFINE_MAP(id, score,
 		leftHandPosition.x, leftHandPosition.y, leftHandPosition.z,
 		rightHandPosition.x, rightHandPosition.y, rightHandPosition.z,
 		headPosition.x, headPosition.y, headPosition.z,
