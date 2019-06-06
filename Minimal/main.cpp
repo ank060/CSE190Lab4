@@ -919,6 +919,8 @@ public:
 
 		std::cout << "Connected! PlayerID: " << playerID << std::endl;
 
+		audioSystem.playSound("ambient");
+
 		// Multi-threaded stuff.
 		// networkRunning = true;
 		// networkThread = std::thread(&ExampleApp::runNetworkUpdate, this);
@@ -1196,8 +1198,14 @@ protected:
 			}
 
 			// Update hand closed state
+			bool prevClosed = player.leftHandClosed || player.rightHandClosed;
 			player.leftHandClosed = leftHandTrigger || leftIndexTrigger;
 			player.rightHandClosed = rightHandTrigger || rightIndexTrigger;
+
+			if (!prevClosed && prevClosed != (player.leftHandClosed || player.rightHandClosed))
+			{
+				audioSystem.playVariedSound("hand", 0.8f);
+			}
 
 			/*
 			// If you want thumbsticks....
