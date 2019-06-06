@@ -13,6 +13,7 @@
 #define PORT 8080
 
 const unsigned int GRID_SIZE = 5;
+const unsigned int MAX_DANGER_BALLS = 50;
 unsigned int NEXT_PLAYER_ID = 0;
 
 // std::vector<PlayerData> players;
@@ -41,15 +42,53 @@ unsigned int createPlayer()
 	return result;
 }
 
-void pickNewGoal()
+bool isDangerBall(int index)
 {
-	unsigned int prevGoalBallIndex = sceneData.goalBallIndex;
-	unsigned int goalBallIndex;
+	return sceneData.dangerBallBits[index] == '1';
+}
+
+int pickRandomBallIndex()
+{
+	return rand() % (GRID_SIZE * GRID_SIZE * GRID_SIZE);
+}
+
+int pickRandomEmptyBallIndex()
+{
+	unsigned int result;
 	do
 	{
-		goalBallIndex = rand() % (GRID_SIZE * GRID_SIZE * GRID_SIZE);
-	} while (goalBallIndex == prevGoalBallIndex);
-	sceneData.goalBallIndex = goalBallIndex;
+		result = pickRandomBallIndex();
+	} while (result == sceneData.goalBallIndex || isDangerBall(result));
+	return result;
+}
+
+void pickNewGoal()
+{
+	int ballIndex = pickRandomEmptyBallIndex();
+	sceneData.goalBallIndex = ballIndex;
+}
+
+void pickNewDanger()
+{
+	int ballIndex = pickRandomEmptyBallIndex();
+	sceneData.dangerBallBits[ballIndex] = '1';
+	sceneData.dangerBallCount++;
+}
+
+void resetDangerBalls()
+{
+	sceneData.dangerBallCount = 0;
+	sceneData.dangerBallBits = std::string(GRID_SIZE * GRID_SIZE * GRID_SIZE, '0');
+}
+
+void resetGame()
+{
+	sceneData.gameStart = false;
+	resetDangerBalls();
+	pickNewGoal();
+
+	firstPlayer.score = 0;
+	secondPlayer.score = 0;
 }
 
 PlayerData& getServerPlayer(unsigned int playerID)
@@ -76,6 +115,7 @@ int main()
 	srand(time(NULL));
 
 	// Set up game...
+	resetDangerBalls();
 	pickNewGoal();
 
 	// Set up rpc server and listen to PORT
@@ -102,10 +142,27 @@ int main()
 		{
 			// Player touched the ball!
 			pickNewGoal();
+			
+			// Pick a danger ball if able to!
+			if (sceneData.dangerBallCount < MAX_DANGER_BALLS)
+			{
+				pickNewDanger();
+			}
 
 			// +1 points for player with playerID
 			getServerPlayer(playerID).score++;
 		}
+	});
+
+	srv.bind("touchDanger", [](unsigned int playerID, unsigned int ballTouched) {
+		if (isDangerBall(ballTouched))
+		{
+			resetGame();
+		}
+	});
+
+	srv.bind("touchStart", [](unsigned int playerID) {
+		sceneData.gameStart = true;
 	});
 
 	// Blocking call to start the server: non-blocking call is srv.async_run(threadsCount);

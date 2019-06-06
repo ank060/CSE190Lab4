@@ -43,6 +43,11 @@ void AudioSystem::update()
 	soundSystem->update();
 }
 
+void AudioSystem::playSound(std::string name)
+{
+	soundSystem->playSound(getSound(name), 0, false, &channel);
+}
+
 void AudioSystem::playGoalSound()
 {
 	soundSystem->playSound(getSound("ding"), 0, false, &channel);

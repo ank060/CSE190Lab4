@@ -664,6 +664,24 @@ protected:
 #include "Sphere.h"
 #include "OBJModel.h"
 
+const unsigned int GRID_SIZE{ 5 };
+const float SPHERE_OFFSET = 0.28F;
+const float SPHERE_SIZE = 0.6F;
+const float COLLISION_RADIUS = 0.15F;
+const int ANIMATION_TIME = 1000;
+const float ANIMATION_VELOCITY = 0.94;
+const float ANIMATION_MIN_THRESHOLD = 1;
+
+struct GameState
+{
+	int goalBallIndex;
+	std::string dangerBallBits;
+	bool hasStarted = false;
+	bool isActive = false;
+
+	float cooldownTimer = 0;
+};
+
 // a class for building and rendering cubes
 class Scene
 {
@@ -682,11 +700,6 @@ class Scene
 	std::unique_ptr<OBJModel> character;
 	std::unique_ptr<OBJModel> handOpened;
 	std::unique_ptr<OBJModel> handClosed;
-
-	const unsigned int GRID_SIZE{ 5 };
-	const float SPHERE_OFFSET = 0.28F;
-	const float SPHERE_SIZE = 0.6F;
-	const float COLLISION_RADIUS = 0.15F;
 
 public:
 	glm::mat4 playerLeftHand;
@@ -746,7 +759,7 @@ public:
 		handClosed = std::make_unique<OBJModel>("./model/hand_closed.obj");
 	}
 
-	std::vector<unsigned int> getBallsWithin(glm::vec3 position)
+	std::vector<unsigned int> getBallsWithin(glm::vec3 position, float radius)
 	{
 		// Gets the ball index at position within radius.
 		std::vector<unsigned int> result;
@@ -754,7 +767,7 @@ public:
 		{
 			glm::mat4& ballMatrix = instance_positions[i];
 			glm::vec3 ballPosition(ballMatrix[3]);
-			if (glm::distance(position, ballPosition) < COLLISION_RADIUS)
+			if (glm::distance(position, ballPosition) < radius)
 			{
 				result.push_back(i);
 			}
@@ -806,25 +819,50 @@ public:
 		renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand, true);
 	}
 
-	void render(const glm::mat4& projection, const glm::mat4& view, unsigned int goalBallIndex)
+	void render(const glm::mat4& projection, const glm::mat4& view, const GameState& gameState)
 	{
 		glEnable(GL_DEPTH_TEST);
 		glDisable(GL_CULL_FACE);
+
+		glm::mat4 worldBallTransformation(1.0);
+		// Goes from 1 to 0...
+		float animationProgress = gameState.cooldownTimer / ANIMATION_TIME;
+		if (animationProgress < 0) animationProgress = 0;
+		if (animationProgress > 1) animationProgress = 1;
+
+		if (!gameState.hasStarted)
+		{
+			// Draw center sphere
+			glUseProgram(sphereShaderID);
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0.6, 0);
+			sphere->toWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.35f * (1 - animationProgress)));
+			sphere->draw(sphereShaderID, projection, view);
+			
+			worldBallTransformation = glm::scale(glm::mat4(1.0f), glm::vec3(animationProgress));
+		}
+		else
+		{
+			worldBallTransformation = glm::scale(glm::mat4(1.0f), glm::vec3(1 - animationProgress));
+		}
 
 		// Render balls
 		glUseProgram(sphereShaderID);
 		for (int i = 0; i < instanceCount; i++)
 		{
-			if (i == goalBallIndex)
+			if (i == gameState.goalBallIndex)
 			{
-				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0, 0);
+				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0.6, 0);
+			}
+			else if (gameState.dangerBallBits[i] == '1')
+			{
+				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.6, 0, 0);
 			}
 			else
 			{
 				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.5, 0.5, 0.5);
 			}
 			// Scale to 20cm: 200cm * 0.1
-			sphere->toWorld = instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+			sphere->toWorld = worldBallTransformation * instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 			sphere->draw(sphereShaderID, projection, view);
 		}
 
@@ -845,6 +883,7 @@ public:
 // An example application that renders a simple cube
 class ExampleApp : public RiftApp
 {
+public:
 	std::shared_ptr<Scene> scene;
 	rpc::client client;
 	AudioSystem audioSystem;
@@ -855,10 +894,9 @@ class ExampleApp : public RiftApp
 	std::thread networkThread;
 	std::atomic<bool> networkRunning;
 	*/
-
 	PlayerData player;
 	PlayerData _otherPlayer;
-	unsigned int goalBallIndex;
+	GameState gameState;
 
 	bool aButton;
 	bool bButton;
@@ -893,9 +931,6 @@ public:
 		leftIndexTrigger = false;
 		rightHandTrigger = false;
 		rightIndexTrigger = false;
-
-
-		audioSystem.playGoalSound();
 	}
 	~ExampleApp()
 	{
@@ -917,6 +952,84 @@ protected:
 	void shutdownGl() override
 	{
 		scene.reset();
+	}
+
+	void performTouchStart()
+	{
+		client.async_call("touchStart", player.id);
+
+		audioSystem.playGoalSound();
+	}
+
+	void performTouchDanger(unsigned int touchedBall)
+	{
+		client.async_call("touchDanger", player.id, touchedBall);
+
+		audioSystem.playGoalSound();
+	}
+
+	void performTouchGoal(unsigned int touchedBall)
+	{
+		client.async_call("touchBall", player.id, touchedBall);
+
+		audioSystem.playGoalSound();
+	}
+
+	void performAction(glm::vec3 handPosition)
+	{
+		if (!gameState.hasStarted)
+		{
+			// Test against center ball
+			if (glm::length(handPosition) < COLLISION_RADIUS * 1.8)
+			{
+				performTouchStart();
+			}
+		}
+		else
+		{
+			// Get all the touched balls.
+			std::vector<unsigned int> touchedBalls = scene->getBallsWithin(handPosition, COLLISION_RADIUS);
+
+			// Check if any of the touched balls are GOLDEN!
+			for (auto it = touchedBalls.begin(), et = touchedBalls.end(); it != et; ++it)
+			{
+				if (gameState.goalBallIndex == *it)
+				{
+					performTouchGoal(gameState.goalBallIndex);
+					break;
+				}
+			}
+		}
+	}
+
+	void updateTransitions()
+	{
+		if (gameState.hasStarted)
+		{
+			if (gameState.cooldownTimer > 0)
+			{
+				gameState.cooldownTimer *= ANIMATION_VELOCITY;
+				gameState.isActive = false;
+				if (gameState.cooldownTimer < ANIMATION_MIN_THRESHOLD)
+				{
+					gameState.cooldownTimer = -1;
+					gameState.isActive = true;
+				}
+			}
+		}
+		else
+		{
+			if (gameState.cooldownTimer > 0)
+			{
+				gameState.cooldownTimer *= ANIMATION_VELOCITY;
+				gameState.isActive = true;
+				if (gameState.cooldownTimer < ANIMATION_MIN_THRESHOLD)
+				{
+					gameState.cooldownTimer = -1;
+					gameState.isActive = false;
+				}
+			}
+		}
 	}
 
 	void updatePlayers()
@@ -954,29 +1067,6 @@ protected:
 		scene->otherRightHandClosed = otherPlayer.rightHandClosed;
 		scene->playerLeftHandClosed = player.leftHandClosed;
 		scene->playerRightHandClosed = player.rightHandClosed;
-	}
-
-	void performTouchGoal(unsigned int touchedBall)
-	{
-		client.async_call("touchBall", player.id, touchedBall);
-
-		audioSystem.playGoalSound();
-	}
-
-	void performAction(glm::vec3 handPosition)
-	{
-		// Get all the touched balls.
-		std::vector<unsigned int> touchedBalls = scene->getBallsWithin(handPosition);
-
-		// Check if any of the touched balls are GOLDEN!
-		for (auto it = touchedBalls.begin(), et = touchedBalls.end(); it != et; ++it)
-		{
-			if (goalBallIndex == *it)
-			{
-				performTouchGoal(goalBallIndex);
-				break;
-			}
-		}
 	}
 
 	void updateInput()
@@ -1126,6 +1216,22 @@ protected:
 		}
 	}
 
+	void updateDangerBalls(glm::vec3& handPosition)
+	{
+		// Get all the touched balls.
+		std::vector<unsigned int> touchedBalls = scene->getBallsWithin(handPosition, COLLISION_RADIUS * 1.2);
+
+		// Check all the balls for danger balls.
+		for (auto it = touchedBalls.begin(), et = touchedBalls.end(); it != et; ++it)
+		{
+			if (gameState.dangerBallBits[*it] == '1')
+			{
+				performTouchDanger(*it);
+				break;
+			}
+		}
+	}
+
 	void update() override
 	{
 		// Sync with network (for single-threaded app)
@@ -1137,6 +1243,15 @@ protected:
 		// Handle collision
 		updateInput();
 
+		// Update game start sequence
+		updateTransitions();
+
+		// Update danger balls
+		auto leftHandPosition = glm::vec3(scene->playerLeftHand[3]);
+		auto rightHandPosition = glm::vec3(scene->playerRightHand[3]);
+		updateDangerBalls(leftHandPosition);
+		updateDangerBalls(rightHandPosition);
+
 		// Update audio
 		audioSystem.update();
 
@@ -1145,7 +1260,7 @@ protected:
 
 	void renderScene(const glm::mat4& projection, const glm::mat4& headPose) override
 	{
-		scene->render(projection, glm::inverse(headPose), goalBallIndex);
+		scene->render(projection, glm::inverse(headPose), gameState);
 	}
 
 public:
@@ -1182,7 +1297,22 @@ public:
 
 	void updateSceneData(SceneData& sceneData)
 	{
-		goalBallIndex = sceneData.goalBallIndex;
+		gameState.goalBallIndex = sceneData.goalBallIndex;
+		gameState.dangerBallBits = sceneData.dangerBallBits;
+		if (gameState.hasStarted != sceneData.gameStart)
+		{
+			gameState.hasStarted = sceneData.gameStart;
+			if (gameState.hasStarted)
+			{
+				std::cout << "Game Started!" << std::endl;
+				gameState.cooldownTimer = ANIMATION_TIME;
+			}
+			else
+			{
+				std::cout << "Game Stopeed!" << std::endl;
+				gameState.cooldownTimer = ANIMATION_TIME;
+			}
+		}
 	}
 
 	void runNetworkUpdate()
@@ -1193,7 +1323,7 @@ public:
 
 		auto gameState = client.call("requestUpdate", player.id).as<std::pair<PlayerData, SceneData>>();
 		SceneData& sceneData = gameState.second;
-		PlayerData & otherPlayer = gameState.first;
+		PlayerData& otherPlayer = gameState.first;
 		updateSceneData(sceneData);
 		updateOtherPlayerData(otherPlayer);
 	}
@@ -1203,12 +1333,6 @@ public:
 int main(int argc, char** argv)
 {
 	int result = -1;
-
-	/*
-	ALCdevice *device;
-	device = alcOpenDevice(NULL);
-	if (!device) return 0;
-	*/
 
 	if (!OVR_SUCCESS(ovr_Initialize(nullptr)))
 	{

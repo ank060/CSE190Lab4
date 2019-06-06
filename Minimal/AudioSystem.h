@@ -18,6 +18,7 @@ public:
 	FMOD::Sound* getSound(std::string name);
 
 	void update();
+	void playSound(std::string name);
 	void playGoalSound();
 };
 
