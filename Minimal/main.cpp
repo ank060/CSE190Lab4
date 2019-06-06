@@ -869,7 +869,7 @@ class ExampleApp : public RiftApp
 	bool rightHandTrigger;
 	bool rightIndexTrigger;
 
-	const float HEAD_SIZE = 0.012F;
+	const float HEAD_SIZE = 0.04F;
 	const float HAND_SIZE = 0.084F;
 
 public:
@@ -1136,6 +1136,9 @@ protected:
 
 		// Handle collision
 		updateInput();
+
+		// Update audio
+		audioSystem.update();
 
 		client.call("sendUpdate", player);
 	}
