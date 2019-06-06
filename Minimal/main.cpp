@@ -680,6 +680,8 @@ class Scene
 	std::unique_ptr<Skybox> skybox;
 
 	std::unique_ptr<OBJModel> character;
+	std::unique_ptr<OBJModel> handOpened;
+	std::unique_ptr<OBJModel> handClosed;
 
 	const unsigned int GRID_SIZE{ 5 };
 	const float SPHERE_OFFSET = 0.28F;
@@ -692,6 +694,11 @@ public:
 	glm::mat4 otherHead;
 	glm::mat4 otherLeftHand;
 	glm::mat4 otherRightHand;
+
+	bool playerLeftHandClosed;
+	bool playerRightHandClosed;
+	bool otherLeftHandClosed;
+	bool otherRightHandClosed;
 
 	Scene()
 	{
@@ -733,6 +740,10 @@ public:
 
 		// Character
 		character = std::make_unique<OBJModel>("./char/astronaut.obj");
+
+		// Model
+		handOpened = std::make_unique<OBJModel>("./model/hand_opened.obj");
+		handClosed = std::make_unique<OBJModel>("./model/hand_closed.obj");
 	}
 
 	std::vector<unsigned int> getBallsWithin(glm::vec3 position)
@@ -751,9 +762,33 @@ public:
 		return result;
 	}
 
-	void renderPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, const glm::mat4& headTransformation, bool altColor)
+	void renderHand(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& handTransformation, const glm::vec3& color, bool isClosed)
 	{
-		renderHeadlessPlayer(projection, view, leftHandTransformation, rightHandTransformation, altColor);
+		// Render hand ...
+		OBJModel* handModel = isClosed ? handClosed.get() : handOpened.get();
+		handModel->toWorld = handTransformation;
+		glUniform3f(glGetUniformLocation(sphereShaderID, "color"), color.r, color.g, color.b);
+		handModel->draw(sphereShaderID, projection, view);
+	}
+
+	void renderHeadlessPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, bool isLocalPlayer)
+	{
+		glUseProgram(sphereShaderID);
+
+		// ... render left hand ...
+		renderHand(projection, view, leftHandTransformation * glm::scale(glm::mat4(1.0), glm::vec3(-1, 1, 1)),
+			glm::vec3(0, isLocalPlayer ? 0 : 0.3, isLocalPlayer ? 0.3 : 0),
+			isLocalPlayer ? playerLeftHandClosed : otherLeftHandClosed);
+
+		// ... render right hand ...
+		renderHand(projection, view, rightHandTransformation,
+			glm::vec3(0.3, isLocalPlayer ? 0 : 0.3, 0),
+			isLocalPlayer ? playerRightHandClosed : otherRightHandClosed);
+	}
+
+	void renderPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, const glm::mat4& headTransformation, bool isLocalPlayer)
+	{
+		renderHeadlessPlayer(projection, view, leftHandTransformation, rightHandTransformation, isLocalPlayer);
 
 		glUseProgram(sphereShaderID);
 
@@ -763,44 +798,12 @@ public:
 		character->draw(sphereShaderID, projection, view);
 	}
 
-	void renderHeadlessPlayer(const glm::mat4& projection, const glm::mat4& view, const glm::mat4& leftHandTransformation, const glm::mat4& rightHandTransformation, bool altColor)
-	{
-		glUseProgram(sphereShaderID);
-
-		// Render Current Player
-		// ... render left hand ...
-		cube->toWorld = leftHandTransformation;
-		// Color = GREEN / BLUE
-		if (altColor)
-		{
-			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0.3, 0);
-		}
-		else
-		{
-			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0, 0.3);
-		}
-		cube->draw(sphereShaderID, projection, view);
-
-		// ... render right hand ...
-		cube->toWorld = rightHandTransformation;
-		// Color = YELLOW / RED
-		if (altColor)
-		{
-			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.3, 0.3, 0);
-		}
-		else
-		{
-			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.3, 0, 0);
-		}
-		cube->draw(sphereShaderID, projection, view);
-	}
-
 	void renderPlayers(const glm::mat4& projection, const glm::mat4& view)
 	{
 		// Render Other Player
-		renderPlayer(projection, view, otherLeftHand, otherRightHand, otherHead, true);
+		renderPlayer(projection, view, otherLeftHand, otherRightHand, otherHead, false);
 		// Render Current Player
-		renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand, false);
+		renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand, true);
 	}
 
 	void render(const glm::mat4& projection, const glm::mat4& view, unsigned int goalBallIndex)
@@ -945,6 +948,12 @@ protected:
 		scene->otherHead = glm::translate(glm::mat4(1.0F), otherPlayer.headPosition) * glm::mat4(otherPlayer.headRotation) * headScale;
 		scene->otherLeftHand = glm::translate(glm::mat4(1.0F), otherPlayer.leftHandPosition) * glm::mat4(otherPlayer.leftHandRotation) * handScale;
 		scene->otherRightHand = glm::translate(glm::mat4(1.0F), otherPlayer.rightHandPosition) * glm::mat4(otherPlayer.rightHandRotation) * handScale;
+
+		//Update closed hand state
+		scene->otherLeftHandClosed = otherPlayer.leftHandClosed;
+		scene->otherRightHandClosed = otherPlayer.rightHandClosed;
+		scene->playerLeftHandClosed = player.leftHandClosed;
+		scene->playerRightHandClosed = player.rightHandClosed;
 	}
 
 	void performTouchGoal(unsigned int touchedBall)
@@ -1095,6 +1104,10 @@ protected:
 			{
 				leftIndexTrigger = false;
 			}
+
+			// Update hand closed state
+			player.leftHandClosed = leftHandTrigger || leftIndexTrigger;
+			player.rightHandClosed = rightHandTrigger || rightIndexTrigger;
 
 			/*
 			// If you want thumbsticks....

@@ -90,7 +90,6 @@ int main()
 
 	srv.bind("sendUpdate", [](PlayerData& playerData) {
 		updateServerPlayer(playerData);
-		std::cout << firstPlayer.rightHandPosition[0] << "," << firstPlayer.rightHandPosition[1] << "," << firstPlayer.rightHandPosition[2] << std::endl;
 	});
 
 	srv.bind("requestUpdate", [](unsigned int playerID) {

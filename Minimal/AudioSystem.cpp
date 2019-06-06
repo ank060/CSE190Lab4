@@ -132,24 +132,34 @@ ALuint source[NUM_SOURCES];
 
 ALCdevice *device;
 ALCcontext *context;
-
 AudioSystem::AudioSystem()
 {
 	// Init openAL
 	device = alcOpenDevice(NULL);
 	context = alcCreateContext(device, NULL);
-	
-	// Clear Error Code (so we can catch any new errors)
-	alGetError();
+	alcMakeContextCurrent(context);
 
-	// Create the audio
-	ALuint error;
+	// Clear Error Code (so we can catch any new errors)
+	// Setup Listeners
+	alListener3f(AL_POSITION, 0, 0, 1);
+	alListener3f(AL_VELOCITY, 0, 0, 0);
+	ALfloat listenerOri[] = { 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f };
+	alListenerfv(AL_ORIENTATION, listenerOri);
+
+	// Clear Error Code (so we can catch any new errors)
+	// Generate the sources
+	alGenSources(NUM_SOURCES, source);
+	alSourcef(source[0], AL_PITCH, 1);
+	alSourcef(source[0], AL_GAIN, 1);
+	alSource3f(source[0], AL_POSITION, 0, 0, 0);
+	alSource3f(source[0], AL_VELOCITY, 0, 0, 0);
+	alSourcei(source[0], AL_LOOPING, AL_FALSE);
 
 	// Create the buffers
 	int channel, sampleRate, bps, size;
 	char* data = LoadWAV("./audio/ding.wav", channel, sampleRate, bps, size);
 	unsigned int format;
-	alGenBuffers(1, &buffers[0]);
+	alGenBuffers(1, buffers);
 	if (channel == 1)
 	{
 		if (bps == 8)
@@ -170,36 +180,25 @@ AudioSystem::AudioSystem()
 		}
 	}
 	alBufferData(buffers[0], format, data, size, sampleRate);
-
-	// Generate the sources
-	alGenSources(NUM_SOURCES, source);
-	if ((error = alGetError()) != AL_NO_ERROR)
-	{
-		printf("alGenSources : %d", error);
-		return;
-	}
-
 	alSourcei(source[0], AL_BUFFER, buffers[0]);
-	if ((error = alGetError()) != AL_NO_ERROR)
-	{
-		printf("alSourcei : %d", error);
-		return;
-	}
+
+	// Clear Error Code (so we can catch any new errors)
+	std::cout << "Sound Code: " << alGetError() << std::endl;
 }
 
 AudioSystem::~AudioSystem()
 {
-	alDeleteSources(NUM_SOURCES, source);
 	alDeleteBuffers(NUM_BUFFERS, buffers);
-	device = alcGetContextsDevice(context);
-	alcMakeContextCurrent(NULL);
+	alDeleteSources(NUM_SOURCES, source);
 	alcDestroyContext(context);
 	alcCloseDevice(device);
 }
 
-
 void AudioSystem::playGoalSound()
 {
 	alSourcePlay(source[0]);
+	ALint source_state;
+	alGetSourcei(source[0], AL_SOURCE_STATE, &source_state);
+	std::cout << source_state << " " << AL_PLAYING << std::endl;
 
 }
