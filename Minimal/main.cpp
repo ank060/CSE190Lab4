@@ -664,6 +664,9 @@ protected:
 #include "Sphere.h"
 #include "OBJModel.h"
 
+#include "PlayerData.h"
+#include "SceneData.h"
+
 const unsigned int GRID_SIZE{ 5 };
 const float SPHERE_OFFSET = 0.28F;
 const float SPHERE_SIZE = 0.6F;
@@ -674,6 +677,8 @@ const float ANIMATION_MIN_THRESHOLD = 1;
 
 struct GameState
 {
+	SceneData sceneData;
+
 	int goalBallIndex;
 	std::string dangerBallBits;
 	bool hasStarted = false;
@@ -745,7 +750,7 @@ public:
 
 		// SkyBox
 		// 10m wide sky box: size doesn't matter though
-		skybox = std::make_unique<Skybox>("skybox");
+		skybox = std::make_unique<Skybox>("new_sky");
 		skybox->toWorld = glm::scale(glm::mat4(1.0f), glm::vec3(5.0f));
 
 		// Sphere
@@ -819,6 +824,21 @@ public:
 		renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand, true);
 	}
 
+	void renderBalls(const glm::mat4& projection, const glm::mat4& view, const SceneData& sceneData)
+	{
+		glUseProgram(sphereShaderID);
+		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
+		{
+			const BallData& ball = (*it);
+			if (ball.active == false) continue;
+
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), ball.color.r, ball.color.g, ball.color.b);
+			// Scale to 20cm: 200cm * 0.1
+			sphere->toWorld = glm::translate(glm::mat4(1.0f), ball.position) * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+			sphere->draw(sphereShaderID, projection, view);
+		}
+	}
+
 	void render(const glm::mat4& projection, const glm::mat4& view, const GameState& gameState)
 	{
 		glEnable(GL_DEPTH_TEST);
@@ -866,6 +886,7 @@ public:
 			sphere->draw(sphereShaderID, projection, view);
 		}
 
+		renderBalls(projection, view, gameState.sceneData);
 		renderPlayers(projection, view);
 
 		// Render Skybox : remove view translation
@@ -874,11 +895,7 @@ public:
 };
 
 #include "rpc/client.h"
-
 #include "AudioSystem.h"
-
-#include "PlayerData.h"
-#include "SceneData.h"
 
 // An example application that renders a simple cube
 class ExampleApp : public RiftApp
@@ -906,6 +923,9 @@ public:
 	bool leftIndexTrigger;
 	bool rightHandTrigger;
 	bool rightIndexTrigger;
+
+	glm::vec3 leftHandVelocity;
+	glm::vec3 rightHandVelocity;
 
 	const float HEAD_SIZE = 0.04F;
 	const float HAND_SIZE = 0.084F;
@@ -977,7 +997,7 @@ protected:
 		audioSystem.playGoalSound();
 	}
 
-	void performAction(glm::vec3 handPosition)
+	void performAction(glm::vec3& handPosition)
 	{
 		if (!gameState.hasStarted)
 		{
@@ -1002,6 +1022,16 @@ protected:
 				}
 			}
 		}
+	}
+
+	void performThrow(glm::vec3& handPosition, glm::vec3& handVelocity)
+	{
+		client.async_call("createBall", player.id, BallData{
+			true,
+			glm::vec3(0, 0, 0.6),
+			handPosition,
+			handVelocity
+			});
 	}
 
 	void updateTransitions()
@@ -1042,6 +1072,9 @@ protected:
 		auto leftHandPose = trackState.HandPoses[ovrHand_Left].ThePose;
 		auto rightHandPose = trackState.HandPoses[ovrHand_Right].ThePose;
 		auto headPose = trackState.HeadPose.ThePose;
+
+		leftHandVelocity = ovr::toGlm(trackState.HandPoses[ovrHand_Left].LinearVelocity);
+		rightHandVelocity = ovr::toGlm(trackState.HandPoses[ovrHand_Right].LinearVelocity);
 
 		player.leftHandPosition = ovr::toGlm(leftHandPose.Position);
 		player.rightHandPosition = ovr::toGlm(rightHandPose.Position);
@@ -1098,7 +1131,8 @@ protected:
 				if (!aButton)
 				{
 					// Handle button action...
-					performAction(glm::vec3(scene->playerRightHand[3]));
+					performThrow(glm::vec3(scene->playerRightHand[3]), glm::vec3(rightHandVelocity));
+					// performAction(glm::vec3(scene->playerRightHand[3]));
 					aButton = true;
 				}
 			}
@@ -1303,8 +1337,9 @@ public:
 		_otherPlayer = playerData;
 	}
 
-	void updateSceneData(SceneData& sceneData)
+	void updateGameState(SceneData& sceneData)
 	{
+		gameState.sceneData = sceneData;
 		gameState.goalBallIndex = sceneData.goalBallIndex;
 		gameState.dangerBallBits = sceneData.dangerBallBits;
 		if (gameState.hasStarted != sceneData.gameStart)
@@ -1329,10 +1364,10 @@ public:
 		// while (networkRunning) {...}
 		// std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-		auto gameState = client.call("requestUpdate", player.id).as<std::pair<PlayerData, SceneData>>();
-		SceneData& sceneData = gameState.second;
-		PlayerData& otherPlayer = gameState.first;
-		updateSceneData(sceneData);
+		auto serverData = client.call("requestUpdate", player.id).as<std::pair<PlayerData, SceneData>>();
+		SceneData& sceneData = serverData.second;
+		PlayerData& otherPlayer = serverData.first;
+		updateGameState(sceneData);
 		updateOtherPlayerData(otherPlayer);
 	}
 };

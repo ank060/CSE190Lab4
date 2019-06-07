@@ -168,8 +168,10 @@
     <ClCompile Include="Server.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\Shared\BallData.h" />
     <ClInclude Include="..\Shared\PlayerData.h" />
     <ClInclude Include="..\Shared\SceneData.h" />
+    <ClInclude Include="BallSystem.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>

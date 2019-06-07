@@ -165,7 +165,46 @@ int main()
 		sceneData.gameStart = true;
 	});
 
+	srv.bind("createBall", [](unsigned int ownerID, BallData& ballData) {
+		ballData.active = true;
+
+		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
+		{
+			BallData& ball = *it;
+			if (ball.active == false) continue;
+
+			ball = ballData;
+			return;
+		}
+
+		std::cout << "Create new ball..." << ballData.position.z << std::endl;
+		// Otherwise create a new ball...
+		sceneData.balls.push_back(ballData);
+	});
+
 	// Blocking call to start the server: non-blocking call is srv.async_run(threadsCount);
-	srv.run();
+	srv.async_run();
+
+	while (true)
+	{
+		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
+		{
+			BallData& ball = *it;
+			if (ball.active == false) continue;
+
+			ball.position.x += ball.velocity.x / 100;
+			ball.position.y += ball.velocity.y / 100;
+			ball.position.z += ball.velocity.z / 100;
+			ball.velocity.z -= 0.001;
+			//std::cout << ball.position.z << std::endl;
+
+			if (ball.position.z < 0)
+			{
+				ball.active = false;
+				std::cout << "DEAD" << std::endl;
+				std::cout << "BALLS IN MEM:" << sceneData.balls.size() << std::endl;
+			}
+		}
+	}
 	return 0;
 }

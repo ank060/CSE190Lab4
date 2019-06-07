@@ -89,5 +89,8 @@
     <ClInclude Include="AudioSystem.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\Shared\BallData.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
