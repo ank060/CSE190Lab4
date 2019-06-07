@@ -15,6 +15,11 @@ AudioSystem::AudioSystem()
 	registerSound("ambient", "./audio/ambient_noise.wav", true);
 	registerSound("hand", "./audio/hand_noise.wav", false);
 	registerSound("hit", "./audio/hit_in_head.wav", false);
+	registerSound("hit_ball", "./audio/ball_hit.wav", false);
+	registerSound("space_ambient", "./audio/space1.wav", true);
+	registerSound("space_music", "./audio/space2.wav", true);
+	registerSound("pop", "./audio/pop.wav", false);
+	registerSound("tick", "./audio/tick.wav", false);
 }
 
 void AudioSystem::registerSound(std::string name, std::string path, bool loop)
@@ -68,5 +73,5 @@ void AudioSystem::playVariedSound(std::string name, float variation)
 
 void AudioSystem::playGoalSound()
 {
-	playVariedSound("ding", 0.1);
+	playVariedSound("pop", 0.1);
 }
