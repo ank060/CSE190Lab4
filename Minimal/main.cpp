@@ -919,7 +919,8 @@ public:
 
 		std::cout << "Connected! PlayerID: " << playerID << std::endl;
 
-		audioSystem.playSound("ambient");
+		audioSystem.playSound("space_ambient");
+		audioSystem.playSound("space_music");
 
 		// Multi-threaded stuff.
 		// networkRunning = true;
