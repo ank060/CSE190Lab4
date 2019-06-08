@@ -685,6 +685,7 @@ struct GameState
 	bool isActive = false;
 
 	float cooldownTimer = 0;
+	int relativeScore = 0;
 };
 
 // a class for building and rendering cubes
@@ -838,11 +839,18 @@ public:
 		{
 			const BallData& ball = (*it);
 
+			if (ball.hitID != 0) continue;
+
 			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), ball.color.r, ball.color.g, ball.color.b);
 			// Scale to 20cm: 200cm * 0.1
 			sphere->toWorld = glm::translate(glm::mat4(1.0f), ball.position) * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 			sphere->draw(sphereShaderID, projection, view);
 		}
+	}
+
+	void renderScore(const glm::mat4& projection, const glm::mat4& view, unsigned int relativeScore)
+	{
+
 	}
 
 	void render(const glm::mat4& projection, const glm::mat4& view, const GameState& gameState)
@@ -894,6 +902,7 @@ public:
 
 		renderBalls(projection, view, gameState.sceneData);
 		renderPlayers(projection, view);
+		renderScore(projection, view, gameState.relativeScore);
 
 		// Render Skybox : remove view translation
 		skybox->draw(shaderID, projection, view);
@@ -1033,10 +1042,12 @@ protected:
 
 	void performRelease(glm::vec3& handPosition, glm::vec3& handVelocity)
 	{
-		if (glm::length(handVelocity) > 1)
+		std::cout << "RELEASE" << glm::length(handVelocity) << std::endl;
+		if (glm::length(handVelocity) > 0.1)
 		{
 			client.async_call("createBall", player.id, BallData{
 				player.id,
+				0,
 				glm::vec3(0, 0.3, 0.6),
 				handPosition,
 				handVelocity
@@ -1113,6 +1124,9 @@ protected:
 		scene->otherRightHandClosed = otherPlayer.rightHandClosed;
 		scene->playerLeftHandClosed = player.leftHandClosed;
 		scene->playerRightHandClosed = player.rightHandClosed;
+
+		// Update relative score
+		gameState.relativeScore = player.score - otherPlayer.score;
 	}
 
 	void updateInput()
@@ -1300,6 +1314,62 @@ protected:
 		}
 	}
 
+	void updateOtherPlayerData(PlayerData& playerData)
+	{
+		// Multi-threaded stuff.
+		// networkMutex.lock();
+		// networkMutex.unlock();
+
+		_otherPlayer = playerData;
+	}
+
+	void updateGameState(SceneData& sceneData)
+	{
+		bool hitSound = false;
+		// Check if hit targets on balls change (then play sound)
+		for (int i = 0; i < gameState.sceneData.balls.size(); ++i)
+		{
+			if (!hitSound && gameState.sceneData.balls[i].hitID <= 0 && sceneData.balls[i].hitID > 0)
+			{
+				audioSystem.playVariedSound("hit", 0.3f);
+				hitSound = true;
+			}
+
+			gameState.sceneData.balls[i] = sceneData.balls[i];
+		}
+
+		gameState.sceneData = sceneData;
+		gameState.goalBallIndex = sceneData.goalBallIndex;
+		gameState.dangerBallBits = sceneData.dangerBallBits;
+		if (gameState.hasStarted != sceneData.gameStart)
+		{
+			gameState.hasStarted = sceneData.gameStart;
+			if (gameState.hasStarted)
+			{
+				std::cout << "Game Started!" << std::endl;
+				gameState.cooldownTimer = ANIMATION_TIME;
+			}
+			else
+			{
+				std::cout << "Game Stopeed!" << std::endl;
+				gameState.cooldownTimer = ANIMATION_TIME;
+			}
+		}
+	}
+
+	void runNetworkUpdate()
+	{
+		// Multi-threaded stuff.
+		// while (networkRunning) {...}
+		// std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+		auto serverData = client.call("requestUpdate", player.id).as<std::pair<PlayerData, SceneData>>();
+		SceneData& sceneData = serverData.second;
+		PlayerData& otherPlayer = serverData.first;
+		updateGameState(sceneData);
+		updateOtherPlayerData(otherPlayer);
+	}
+
 	void update() override
 	{
 		// Sync with network (for single-threaded app)
@@ -1352,56 +1422,6 @@ public:
 
 		result = _otherPlayer;
 		return result;
-	}
-
-	void updateOtherPlayerData(PlayerData& playerData)
-	{
-		// Multi-threaded stuff.
-		// networkMutex.lock();
-		// networkMutex.unlock();
-
-		_otherPlayer = playerData;
-	}
-
-	void updateGameState(SceneData& sceneData)
-	{
-		// Check if hit targets on balls change (then play sound)
-		bool hitSound = false;
-		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
-		{
-			if (scend)
-		}
-
-		gameState.sceneData = sceneData;
-		gameState.goalBallIndex = sceneData.goalBallIndex;
-		gameState.dangerBallBits = sceneData.dangerBallBits;
-		if (gameState.hasStarted != sceneData.gameStart)
-		{
-			gameState.hasStarted = sceneData.gameStart;
-			if (gameState.hasStarted)
-			{
-				std::cout << "Game Started!" << std::endl;
-				gameState.cooldownTimer = ANIMATION_TIME;
-			}
-			else
-			{
-				std::cout << "Game Stopeed!" << std::endl;
-				gameState.cooldownTimer = ANIMATION_TIME;
-			}
-		}
-	}
-
-	void runNetworkUpdate()
-	{
-		// Multi-threaded stuff.
-		// while (networkRunning) {...}
-		// std::this_thread::sleep_for(std::chrono::milliseconds(5));
-
-		auto serverData = client.call("requestUpdate", player.id).as<std::pair<PlayerData, SceneData>>();
-		SceneData& sceneData = serverData.second;
-		PlayerData& otherPlayer = serverData.first;
-		updateGameState(sceneData);
-		updateOtherPlayerData(otherPlayer);
 	}
 };
 

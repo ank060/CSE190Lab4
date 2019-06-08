@@ -13,7 +13,7 @@ struct BallData
 
 	// rpc Macro to generate serialize code for the struct (Note: for glm object, manually specify x,y,z,w)
 	MSGPACK_DEFINE_MAP(
-		ownerID,
+		ownerID, hitID,
 		color.x, color.y, color.z,
 		position.x, position.y, position.z,
 		velocity.x, velocity.y, velocity.z

@@ -167,8 +167,6 @@ int main()
 
 	srv.bind("createBall", [](unsigned int ownerID, BallData& ballData) {
 		auto& player = getServerPlayer(ownerID);
-		if (player.score <= 0) return;
-		player.score--;
 
 		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
 		{
@@ -199,12 +197,12 @@ int main()
 			ball.position.z += ball.velocity.z / 50;
 			ball.velocity.y -= 0.04;
 
-			if (glm::distance(ball.position, firstPlayer.headPosition) < 0.5)
+			if (firstPlayer.id > 0 && ball.ownerID != firstPlayer.id && glm::distance(ball.position, firstPlayer.headPosition) < 0.5)
 			{
 				ball.hitID = firstPlayer.id;
 				ball.ownerID = 0;
 			}
-			else if (glm::distance(ball.position, secondPlayer.headPosition) < 0.5)
+			else if (secondPlayer.id > 0 && ball.ownerID != secondPlayer.id && glm::distance(ball.position, secondPlayer.headPosition) < 0.5)
 			{
 				ball.hitID = secondPlayer.id;
 				ball.ownerID = 0;
