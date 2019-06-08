@@ -713,6 +713,8 @@ public:
 	glm::mat4 otherLeftHand;
 	glm::mat4 otherRightHand;
 
+	bool otherPlayerActive;
+
 	bool playerLeftHandClosed;
 	bool playerRightHandClosed;
 	bool otherLeftHandClosed;
@@ -762,6 +764,8 @@ public:
 		// Model
 		handOpened = std::make_unique<OBJModel>("./model/hand_opened.obj");
 		handClosed = std::make_unique<OBJModel>("./model/hand_closed.obj");
+
+		otherPlayerActive = false;
 	}
 
 	std::vector<unsigned int> getBallsWithin(glm::vec3 position, float radius)
@@ -819,7 +823,10 @@ public:
 	void renderPlayers(const glm::mat4& projection, const glm::mat4& view)
 	{
 		// Render Other Player
-		renderPlayer(projection, view, otherLeftHand, otherRightHand, otherHead, false);
+		if (otherPlayerActive == true)
+		{
+			renderPlayer(projection, view, otherLeftHand, otherRightHand, otherHead, false);
+		}
 		// Render Current Player
 		renderHeadlessPlayer(projection, view, playerLeftHand, playerRightHand, true);
 	}
@@ -830,7 +837,6 @@ public:
 		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
 		{
 			const BallData& ball = (*it);
-			if (ball.active == false) continue;
 
 			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), ball.color.r, ball.color.g, ball.color.b);
 			// Scale to 20cm: 200cm * 0.1
@@ -1025,14 +1031,17 @@ protected:
 		}
 	}
 
-	void performThrow(glm::vec3& handPosition, glm::vec3& handVelocity)
+	void performRelease(glm::vec3& handPosition, glm::vec3& handVelocity)
 	{
-		client.async_call("createBall", player.id, BallData{
-			true,
-			glm::vec3(0, 0, 0.6),
-			handPosition,
-			handVelocity
+		if (glm::length(handVelocity) > 1)
+		{
+			client.async_call("createBall", player.id, BallData{
+				player.id,
+				glm::vec3(0, 0.3, 0.6),
+				handPosition,
+				handVelocity
 			});
+		}
 	}
 
 	void updateTransitions()
@@ -1097,6 +1106,7 @@ protected:
 		scene->otherHead = glm::translate(glm::mat4(1.0F), otherPlayer.headPosition) * glm::mat4(otherPlayer.headRotation) * headScale;
 		scene->otherLeftHand = glm::translate(glm::mat4(1.0F), otherPlayer.leftHandPosition) * glm::mat4(otherPlayer.leftHandRotation) * handScale;
 		scene->otherRightHand = glm::translate(glm::mat4(1.0F), otherPlayer.rightHandPosition) * glm::mat4(otherPlayer.rightHandRotation) * handScale;
+		scene->otherPlayerActive = (otherPlayer.id != 0);
 
 		//Update closed hand state
 		scene->otherLeftHandClosed = otherPlayer.leftHandClosed;
@@ -1121,8 +1131,10 @@ protected:
 					bButton = true;
 				}
 			}
-			else
+			else if (bButton)
 			{
+				// Handle button release...
+				performRelease(glm::vec3(scene->playerRightHand[3]), rightHandVelocity);
 				bButton = false;
 			}
 
@@ -1132,13 +1144,14 @@ protected:
 				if (!aButton)
 				{
 					// Handle button action...
-					performThrow(glm::vec3(scene->playerRightHand[3]), glm::vec3(rightHandVelocity));
-					// performAction(glm::vec3(scene->playerRightHand[3]));
+					performAction(glm::vec3(scene->playerRightHand[3]));
 					aButton = true;
 				}
 			}
-			else
+			else if (aButton)
 			{
+				// Handle button release...
+				performRelease(glm::vec3(scene->playerRightHand[3]), rightHandVelocity);
 				aButton = false;
 			}
 
@@ -1152,8 +1165,10 @@ protected:
 					xButton = true;
 				}
 			}
-			else
+			else if (xButton)
 			{
+				// Handle button release...
+				performRelease(glm::vec3(scene->playerLeftHand[3]), leftHandVelocity);
 				xButton = false;
 			}
 
@@ -1167,8 +1182,10 @@ protected:
 					yButton = true;
 				}
 			}
-			else
+			else if (yButton)
 			{
+				// Handle button release...
+				performRelease(glm::vec3(scene->playerLeftHand[3]), leftHandVelocity);
 				yButton = false;
 			}
 
@@ -1182,8 +1199,10 @@ protected:
 					rightHandTrigger = true;
 				}
 			}
-			else
+			else if (rightHandTrigger)
 			{
+				// Handle button release...
+				performRelease(glm::vec3(scene->playerRightHand[3]), rightHandVelocity);
 				rightHandTrigger = false;
 			}
 
@@ -1197,8 +1216,10 @@ protected:
 					rightIndexTrigger = true;
 				}
 			}
-			else
+			else if (rightIndexTrigger)
 			{
+				// Handle button release...
+				performRelease(glm::vec3(scene->playerRightHand[3]), rightHandVelocity);
 				rightIndexTrigger = false;
 			}
 
@@ -1212,8 +1233,10 @@ protected:
 					leftHandTrigger = true;
 				}
 			}
-			else
+			else if (leftHandTrigger)
 			{
+				// Handle button release...
+				performRelease(glm::vec3(scene->playerLeftHand[3]), leftHandVelocity);
 				leftHandTrigger = false;
 			}
 
@@ -1227,8 +1250,10 @@ protected:
 					leftIndexTrigger = true;
 				}
 			}
-			else
+			else if (leftIndexTrigger)
 			{
+				// Handle button release...
+				performRelease(glm::vec3(scene->playerLeftHand[3]), leftHandVelocity);
 				leftIndexTrigger = false;
 			}
 
@@ -1340,6 +1365,13 @@ public:
 
 	void updateGameState(SceneData& sceneData)
 	{
+		// Check if hit targets on balls change (then play sound)
+		bool hitSound = false;
+		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
+		{
+			if (scend)
+		}
+
 		gameState.sceneData = sceneData;
 		gameState.goalBallIndex = sceneData.goalBallIndex;
 		gameState.dangerBallBits = sceneData.dangerBallBits;

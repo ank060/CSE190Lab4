@@ -166,12 +166,14 @@ int main()
 	});
 
 	srv.bind("createBall", [](unsigned int ownerID, BallData& ballData) {
-		ballData.active = true;
+		auto& player = getServerPlayer(ownerID);
+		if (player.score <= 0) return;
+		player.score--;
 
 		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
 		{
 			BallData& ball = *it;
-			if (ball.active == false) continue;
+			if (ball.ownerID != 0) continue;
 
 			ball = ballData;
 			return;
@@ -190,21 +192,32 @@ int main()
 		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
 		{
 			BallData& ball = *it;
-			if (ball.active == false) continue;
+			if (ball.ownerID == 0) continue;
 
-			ball.position.x += ball.velocity.x / 100;
-			ball.position.y += ball.velocity.y / 100;
-			ball.position.z += ball.velocity.z / 100;
-			ball.velocity.z -= 0.001;
-			//std::cout << ball.position.z << std::endl;
+			ball.position.x += ball.velocity.x / 50;
+			ball.position.y += ball.velocity.y / 50;
+			ball.position.z += ball.velocity.z / 50;
+			ball.velocity.y -= 0.04;
 
-			if (ball.position.z < 0)
+			if (glm::distance(ball.position, firstPlayer.headPosition) < 0.5)
 			{
-				ball.active = false;
-				std::cout << "DEAD" << std::endl;
+				ball.hitID = firstPlayer.id;
+				ball.ownerID = 0;
+			}
+			else if (glm::distance(ball.position, secondPlayer.headPosition) < 0.5)
+			{
+				ball.hitID = secondPlayer.id;
+				ball.ownerID = 0;
+			}
+			else if (ball.position.y < -10)
+			{
+				ball.ownerID = 0;
+				std::cout << "DEAD at " << ball.position.x << "," << ball.position.y << "," << ball.position.z << std::endl;
 				std::cout << "BALLS IN MEM:" << sceneData.balls.size() << std::endl;
 			}
 		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 	return 0;
 }
