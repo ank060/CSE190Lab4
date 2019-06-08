@@ -20,6 +20,7 @@ AudioSystem::AudioSystem()
 	registerSound("space_music", "./audio/space2.wav", true);
 	registerSound("pop", "./audio/pop.wav", false);
 	registerSound("tick", "./audio/tick.wav", false);
+	registerSound("grab_ball_object", "./audio/grab_ball_object.wav", false);
 }
 
 void AudioSystem::registerSound(std::string name, std::string path, bool loop)
