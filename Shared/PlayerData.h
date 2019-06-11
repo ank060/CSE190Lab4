@@ -14,6 +14,9 @@ struct PlayerData
 	glm::vec3 rightHandPosition;
 	glm::vec3 headPosition;
 
+	glm::vec3 leftHandVelocity;
+	glm::vec3 rightHandVelocity;
+
 	glm::quat leftHandRotation;
 	glm::quat rightHandRotation;
 	glm::quat headRotation;
@@ -23,6 +26,8 @@ struct PlayerData
 		leftHandPosition.x, leftHandPosition.y, leftHandPosition.z,
 		rightHandPosition.x, rightHandPosition.y, rightHandPosition.z,
 		headPosition.x, headPosition.y, headPosition.z,
+		leftHandVelocity.x, leftHandVelocity.y, leftHandVelocity.z,
+		rightHandVelocity.x, rightHandVelocity.y, rightHandVelocity.z,
 		leftHandRotation.x, leftHandRotation.y, leftHandRotation.z, leftHandRotation.w,
 		rightHandRotation.x, rightHandRotation.y, rightHandRotation.z, rightHandRotation.w,
 		headRotation.x, headRotation.y, headRotation.z, headRotation.w)

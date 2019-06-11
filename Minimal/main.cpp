@@ -672,6 +672,10 @@ const float SPHERE_OFFSET = 0.28F;
 const float SPHERE_SIZE = 0.6F;
 const float COLLISION_RADIUS = 0.15F;
 const float START_COLLISION_RADIUS = 0.35F;
+const float SLAP_COLLISION_RADIUS = 0.2F;
+const float CLAP_COLLISION_RADIUS = 0.1F;
+const float COLLISION_TOLERANCE = 0.2F;
+
 const int ANIMATION_TIME = 1000;
 const float ANIMATION_VELOCITY = 0.94;
 const float ANIMATION_MIN_THRESHOLD = 1;
@@ -831,7 +835,7 @@ public:
 
 		// Render head
 		glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0.3, 0.3);
-		character->toWorld = headTransformation;
+		character->toWorld = headTransformation * glm::rotate(glm::mat4(1.0F), -3.14F / 2.0F, glm::vec3(1, 0, 0)) * glm::rotate(glm::mat4(1.0F), 3.14F, glm::vec3(0, 0, 1));
 		character->draw(sphereShaderID, projection, view);
 	}
 
@@ -963,8 +967,15 @@ public:
 	bool rightHandTrigger;
 	bool rightIndexTrigger;
 
-	glm::vec3 leftHandVelocity;
-	glm::vec3 rightHandVelocity;
+	bool playerLeftSlap;
+	bool playerRightSlap;
+	bool otherLeftSlap;
+	bool otherRightSlap;
+
+	bool leftLeftClap;
+	bool leftRightClap;
+	bool rightLeftClap;
+	bool rightRightClap;
 
 	const float HEAD_SIZE = 0.04F;
 	const float HAND_SIZE = 0.084F;
@@ -993,6 +1004,16 @@ public:
 		leftIndexTrigger = false;
 		rightHandTrigger = false;
 		rightIndexTrigger = false;
+
+		playerLeftSlap = false;
+		playerRightSlap = false;
+		otherLeftSlap = false;
+		otherRightSlap = false;
+
+		leftLeftClap = false;
+		leftRightClap = false;
+		rightLeftClap = false;
+		rightRightClap = false;
 	}
 	~ExampleApp()
 	{
@@ -1019,8 +1040,6 @@ protected:
 	void performTouchStart()
 	{
 		client.async_call("touchStart", player.id);
-
-		audioSystem.playGoalSound();
 	}
 
 	void performTouchDanger(unsigned int touchedBall)
@@ -1031,8 +1050,6 @@ protected:
 	void performTouchGoal(unsigned int touchedBall)
 	{
 		client.async_call("touchBall", player.id, touchedBall);
-
-		audioSystem.playGoalSound();
 	}
 
 	void performAction(glm::vec3& handPosition)
@@ -1107,6 +1124,61 @@ protected:
 		}
 	}
 
+	void updateClapForHands(glm::vec3& handPosition, glm::vec3& handVelocity, glm::vec3& otherHandPosition, glm::vec3& otherHandVelocity, bool& clapFlag)
+	{
+		double dist = glm::distance(handPosition, otherHandPosition);
+		double maxVelocity = std::max(glm::length(handVelocity), glm::length(otherHandPosition));
+		if (dist < CLAP_COLLISION_RADIUS && maxVelocity > RELEASE_THRESHOLD)
+		{
+			if (!clapFlag)
+			{
+				clapFlag = true;
+				audioSystem.playVariedSound("clap", 0.1);
+			}
+		}
+		else if (dist > CLAP_COLLISION_RADIUS + COLLISION_TOLERANCE)
+		{
+			clapFlag = false;
+		}
+	}
+
+	void updateClap()
+	{
+		PlayerData other = getOtherPlayer();
+
+		updateClapForHands(player.leftHandPosition, player.leftHandVelocity, other.leftHandPosition, other.leftHandVelocity, leftLeftClap);
+		updateClapForHands(player.leftHandPosition, player.leftHandVelocity, other.rightHandPosition, other.rightHandVelocity, leftRightClap);
+		updateClapForHands(player.rightHandPosition, player.rightHandVelocity, other.leftHandPosition, other.leftHandVelocity, rightLeftClap);
+		updateClapForHands(player.rightHandPosition, player.rightHandVelocity, other.rightHandPosition, other.rightHandVelocity, rightRightClap);
+	}
+
+	void updateSlapForHand(glm::vec3& handPosition, glm::vec3& handVelocity, glm::vec3& otherHeadPosition, bool& slapFlag)
+	{
+		double dist = glm::distance(handPosition, otherHeadPosition);
+		if (dist < SLAP_COLLISION_RADIUS && glm::length(handVelocity) > RELEASE_THRESHOLD)
+		{
+			if (!slapFlag)
+			{
+				slapFlag = true;
+				audioSystem.playVariedSound("hit", 0.1);
+			}
+		}
+		else if (dist > SLAP_COLLISION_RADIUS + COLLISION_TOLERANCE)
+		{
+			slapFlag = false;
+		}
+	}
+
+	void updateSlap()
+	{
+		PlayerData other = getOtherPlayer();
+
+		updateSlapForHand(player.leftHandPosition, player.leftHandVelocity, other.headPosition, playerLeftSlap);
+		updateSlapForHand(player.rightHandPosition, player.rightHandVelocity, other.headPosition, playerRightSlap);
+		updateSlapForHand(other.leftHandPosition, other.leftHandVelocity, player.headPosition, otherLeftSlap);
+		updateSlapForHand(other.rightHandPosition, other.rightHandVelocity, player.headPosition, otherRightSlap);
+	}
+
 	void updatePlayers()
 	{
 		// Hand & Head Positions
@@ -1116,8 +1188,8 @@ protected:
 		auto rightHandPose = trackState.HandPoses[ovrHand_Right].ThePose;
 		auto headPose = trackState.HeadPose.ThePose;
 
-		leftHandVelocity = ovr::toGlm(trackState.HandPoses[ovrHand_Left].LinearVelocity);
-		rightHandVelocity = ovr::toGlm(trackState.HandPoses[ovrHand_Right].LinearVelocity);
+		player.leftHandVelocity = ovr::toGlm(trackState.HandPoses[ovrHand_Left].LinearVelocity);
+		player.rightHandVelocity = ovr::toGlm(trackState.HandPoses[ovrHand_Right].LinearVelocity);
 
 		player.leftHandPosition = ovr::toGlm(leftHandPose.Position);
 		player.rightHandPosition = ovr::toGlm(rightHandPose.Position);
@@ -1150,6 +1222,9 @@ protected:
 
 	void updateInput()
 	{
+		glm::vec3& leftHandVelocity = player.leftHandVelocity;
+		glm::vec3& rightHandVelocity = player.rightHandVelocity;
+
 		//Input state
 		ovrInputState inputState;
 		if (OVR_SUCCESS(ovr_GetInputState(_session, ovrControllerType_Touch, &inputState)))
@@ -1350,7 +1425,7 @@ protected:
 		{
 			if (!hitSound && gameState.sceneData.balls[i].hitID <= 0 && sceneData.balls[i].hitID > 0)
 			{
-				audioSystem.playVariedSound("hit", 0.3f);
+				audioSystem.playSound("hit_ball");
 				hitSound = true;
 			}
 
@@ -1368,10 +1443,18 @@ protected:
 			}
 		}
 
+		// Play goal sounds
+		if (gameState.totalScore != sceneData.totalScore)
+		{
+			if (gameState.totalScore < sceneData.totalScore) {
+				audioSystem.playGoalSound();
+			}
+			gameState.totalScore = sceneData.totalScore;
+		}
+
 		gameState.sceneData = sceneData;
 		gameState.goalBallIndex = sceneData.goalBallIndex;
 		gameState.dangerBallBits = sceneData.dangerBallBits;
-		gameState.totalScore = sceneData.totalScore;
 		if (gameState.hasStarted != sceneData.gameStart)
 		{
 			gameState.hasStarted = sceneData.gameStart;
@@ -1379,6 +1462,8 @@ protected:
 			{
 				std::cout << "Game Started!" << std::endl;
 				gameState.cooldownTimer = ANIMATION_TIME;
+
+				audioSystem.playGoalSound();
 			}
 			else
 			{
@@ -1416,6 +1501,12 @@ protected:
 
 		// Update game start sequence
 		updateTransitions();
+
+		// Update player slaps
+		updateSlap();
+
+		// Update player claps
+		updateClap();
 
 		// Update danger balls
 		auto leftHandPosition = glm::vec3(scene->playerLeftHand[3]);
