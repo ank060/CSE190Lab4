@@ -664,6 +664,8 @@ protected:
 #include "Sphere.h"
 #include "OBJModel.h"
 
+#include "ParticleSystem.h"
+
 #include "PlayerData.h"
 #include "SceneData.h"
 
@@ -732,6 +734,8 @@ public:
 	bool playerRightHandClosed;
 	bool otherLeftHandClosed;
 	bool otherRightHandClosed;
+
+	ParticleSystem particleSystem;
 
 	Scene()
 	{
@@ -878,6 +882,22 @@ public:
 		}
 	}
 
+	void renderParticles(const glm::mat4& projection, const glm::mat4& view)
+	{
+		glUseProgram(sphereShaderID);
+		for (auto it = particleSystem.getParticles().begin(), et = particleSystem.getParticles().end(); it != et; ++it)
+		{
+			Particle& particle = *it;
+			if (particle.age > 0)
+			{
+				float ageRatio = particle.age / (float)particleSystem.maxAge;
+				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0, 0.6 * ageRatio);
+				sphere->toWorld = glm::translate(glm::mat4(1.0f), particle.position) * glm::scale(glm::mat4(1.0f), glm::vec3(0.02f * ageRatio));
+				sphere->draw(sphereShaderID, projection, view);
+			}
+		}
+	}
+
 	void render(const glm::mat4& projection, const glm::mat4& view, const GameState& gameState)
 	{
 		glEnable(GL_DEPTH_TEST);
@@ -930,6 +950,7 @@ public:
 		renderBalls(projection, view, gameState.sceneData);
 		renderPlayers(projection, view);
 		renderScore(projection, view, gameState.totalScore);
+		renderParticles(projection, view);
 
 		// Render Skybox : remove view translation
 		skybox->draw(shaderID, projection, view);
@@ -1408,6 +1429,11 @@ protected:
 		}
 	}
 
+	void updateParticles()
+	{
+		scene->particleSystem.update();
+	}
+
 	void updateOtherPlayerData(PlayerData& playerData)
 	{
 		// Multi-threaded stuff.
@@ -1425,6 +1451,7 @@ protected:
 		{
 			if (!hitSound && gameState.sceneData.balls[i].hitID <= 0 && sceneData.balls[i].hitID > 0)
 			{
+				scene->particleSystem.spawnHitParticles(gameState.sceneData.balls[i].position);
 				audioSystem.playSound("hit_ball");
 				hitSound = true;
 			}
@@ -1507,6 +1534,9 @@ protected:
 
 		// Update player claps
 		updateClap();
+
+		// Update particles
+		updateParticles();
 
 		// Update danger balls
 		auto leftHandPosition = glm::vec3(scene->playerLeftHand[3]);
