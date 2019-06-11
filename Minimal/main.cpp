@@ -667,6 +667,7 @@ protected:
 #include "PlayerData.h"
 #include "SceneData.h"
 
+
 const unsigned int GRID_SIZE{ 5 };
 const float SPHERE_OFFSET = 0.28F;
 const float SPHERE_SIZE = 0.6F;
@@ -678,7 +679,6 @@ const float ANIMATION_MIN_THRESHOLD = 1;
 struct GameState
 {
 	SceneData sceneData;
-
 	int goalBallIndex;
 	std::string dangerBallBits;
 	bool hasStarted = false;
@@ -899,7 +899,6 @@ public:
 			sphere->toWorld = worldBallTransformation * instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 			sphere->draw(sphereShaderID, projection, view);
 		}
-
 		renderBalls(projection, view, gameState.sceneData);
 		renderPlayers(projection, view);
 		renderScore(projection, view, gameState.relativeScore);
@@ -910,6 +909,7 @@ public:
 };
 
 #include "rpc/client.h"
+
 #include "AudioSystem.h"
 
 // An example application that renders a simple cube
@@ -1003,7 +1003,7 @@ protected:
 	{
 		client.async_call("touchDanger", player.id, touchedBall);
 
-		audioSystem.playGoalSound();
+		audioSystem.playSound("ding");
 	}
 
 	void performTouchGoal(unsigned int touchedBall)
@@ -1051,7 +1051,7 @@ protected:
 				glm::vec3(0, 0.3, 0.6),
 				handPosition,
 				handVelocity
-			});
+				});
 		}
 	}
 
