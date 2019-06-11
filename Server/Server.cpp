@@ -4,6 +4,8 @@
 #include "pch.h"
 #include <iostream>
 #include <string>
+#include <ctime>
+#include <chrono>
 
 #include "rpc/server.h"
 
@@ -15,6 +17,10 @@
 const unsigned int GRID_SIZE = 5;
 const unsigned int MAX_DANGER_BALLS = 50;
 unsigned int NEXT_PLAYER_ID = 0;
+
+double MAX_GAME_TIME = 10;
+
+std::chrono::high_resolution_clock::time_point gameStartTime;
 
 // std::vector<PlayerData> players;
 PlayerData firstPlayer;
@@ -86,9 +92,6 @@ void resetGame()
 	sceneData.gameStart = false;
 	resetDangerBalls();
 	pickNewGoal();
-
-	firstPlayer.score = 0;
-	secondPlayer.score = 0;
 }
 
 PlayerData& getServerPlayer(unsigned int playerID)
@@ -134,35 +137,45 @@ int main()
 
 	srv.bind("requestUpdate", [](unsigned int playerID) {
 		PlayerData& otherPlayer = getOtherServerPlayer(playerID);
+		std::chrono::duration<double> timeElapsed = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::high_resolution_clock::now() - gameStartTime);
+		sceneData.gameTicks = floor(timeElapsed.count());
 		return std::pair<PlayerData, SceneData>(otherPlayer, sceneData);
 	});
 
 	srv.bind("touchBall", [](unsigned int playerID, unsigned int ballTouched) {
-		if (ballTouched == sceneData.goalBallIndex)
-		{
+		if (ballTouched == sceneData.goalBallIndex) {
 			// Player touched the ball!
 			pickNewGoal();
+
+			// Reset game time!
+			gameStartTime = std::chrono::high_resolution_clock::now();
 			
 			// Pick a danger ball if able to!
-			if (sceneData.dangerBallCount < MAX_DANGER_BALLS)
-			{
+			if (sceneData.dangerBallCount < MAX_DANGER_BALLS) {
 				pickNewDanger();
 			}
 
 			// +1 points for player with playerID
 			getServerPlayer(playerID).score++;
+			sceneData.totalScore++;
+			std::cout << "SCORE: " << sceneData.totalScore << std::endl;
 		}
 	});
 
 	srv.bind("touchDanger", [](unsigned int playerID, unsigned int ballTouched) {
-		if (isDangerBall(ballTouched))
-		{
+		if (isDangerBall(ballTouched)) {
 			resetGame();
 		}
 	});
 
 	srv.bind("touchStart", [](unsigned int playerID) {
 		sceneData.gameStart = true;
+		sceneData.gameTicks = 0;
+
+		// Reset game score to 0
+		sceneData.totalScore = 0;
+
+		gameStartTime = std::chrono::high_resolution_clock::now();
 	});
 
 	srv.bind("createBall", [](unsigned int ownerID, BallData& ballData) {
@@ -187,6 +200,16 @@ int main()
 
 	while (true)
 	{
+		// Update game ticks
+		if (sceneData.gameStart) {
+			std::chrono::duration<double> timeElapsed = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::high_resolution_clock::now() - gameStartTime);
+			if (timeElapsed.count() > MAX_GAME_TIME) {
+				resetGame();
+				continue;
+			}
+		}
+
+		// Update ball physics
 		for (auto it = sceneData.balls.begin(), et = sceneData.balls.end(); it != et; ++it)
 		{
 			BallData& ball = *it;
@@ -215,6 +238,7 @@ int main()
 			}
 		}
 
+		// Sleeeeep.
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 	return 0;

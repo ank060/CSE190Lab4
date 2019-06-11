@@ -667,14 +667,18 @@ protected:
 #include "PlayerData.h"
 #include "SceneData.h"
 
-
 const unsigned int GRID_SIZE{ 5 };
 const float SPHERE_OFFSET = 0.28F;
 const float SPHERE_SIZE = 0.6F;
 const float COLLISION_RADIUS = 0.15F;
+const float START_COLLISION_RADIUS = 0.35F;
 const int ANIMATION_TIME = 1000;
 const float ANIMATION_VELOCITY = 0.94;
 const float ANIMATION_MIN_THRESHOLD = 1;
+const float RELEASE_THRESHOLD = 1.0;
+const int RUSH_TIME_THRESHOLD = 5;
+
+const glm::vec3 scoreColor(0.7, 0.7, 0);
 
 struct GameState
 {
@@ -685,7 +689,8 @@ struct GameState
 	bool isActive = false;
 
 	float cooldownTimer = 0;
-	int relativeScore = 0;
+	int totalScore = 0;
+	int prevGameTicks = 0;
 };
 
 // a class for building and rendering cubes
@@ -706,6 +711,9 @@ class Scene
 	std::unique_ptr<OBJModel> character;
 	std::unique_ptr<OBJModel> handOpened;
 	std::unique_ptr<OBJModel> handClosed;
+
+	std::unique_ptr<OBJModel> spikeySphere;
+	std::unique_ptr<OBJModel> star;
 
 public:
 	glm::mat4 playerLeftHand;
@@ -765,6 +773,12 @@ public:
 		// Model
 		handOpened = std::make_unique<OBJModel>("./model/hand_opened.obj");
 		handClosed = std::make_unique<OBJModel>("./model/hand_closed.obj");
+
+		// Danger sphere
+		spikeySphere = std::make_unique<OBJModel>("./model/virus.obj");
+
+		// Score
+		star = std::make_unique<OBJModel>("./model/star.obj");
 
 		otherPlayerActive = false;
 	}
@@ -848,9 +862,16 @@ public:
 		}
 	}
 
-	void renderScore(const glm::mat4& projection, const glm::mat4& view, unsigned int relativeScore)
+	void renderScore(const glm::mat4& projection, const glm::mat4& view, int score)
 	{
-
+		glUseProgram(sphereShaderID);
+		float offset = score / 2.0;
+		for (int i = 0; i < score; ++i)
+		{
+			glUniform3f(glGetUniformLocation(sphereShaderID, "color"), scoreColor.r, scoreColor.g, scoreColor.b);
+			star->toWorld = glm::translate(glm::mat4(1.0f), glm::vec3(0, -1.5F, i * 0.16F - offset * 0.16F)) * glm::scale(glm::mat4(1.0f), glm::vec3(0.01f));
+			star->draw(sphereShaderID, projection, view);
+		}
 	}
 
 	void render(const glm::mat4& projection, const glm::mat4& view, const GameState& gameState)
@@ -883,25 +904,28 @@ public:
 		glUseProgram(sphereShaderID);
 		for (int i = 0; i < instanceCount; i++)
 		{
+			// Scale to 20cm: 200cm * 0.1
+			sphere->toWorld = worldBallTransformation * instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
 			if (i == gameState.goalBallIndex)
 			{
 				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0, 0.6, 0);
+				sphere->draw(sphereShaderID, projection, view);
 			}
 			else if (gameState.dangerBallBits[i] == '1')
 			{
+				spikeySphere->toWorld = sphere->toWorld * glm::scale(glm::mat4(1.0f), glm::vec3(0.01f));
 				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.6, 0, 0);
+				spikeySphere->draw(sphereShaderID, projection, view);
 			}
 			else
 			{
 				glUniform3f(glGetUniformLocation(sphereShaderID, "color"), 0.5, 0.5, 0.5);
+				sphere->draw(sphereShaderID, projection, view);
 			}
-			// Scale to 20cm: 200cm * 0.1
-			sphere->toWorld = worldBallTransformation * instance_positions[i] * glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
-			sphere->draw(sphereShaderID, projection, view);
 		}
 		renderBalls(projection, view, gameState.sceneData);
 		renderPlayers(projection, view);
-		renderScore(projection, view, gameState.relativeScore);
+		renderScore(projection, view, gameState.totalScore);
 
 		// Render Skybox : remove view translation
 		skybox->draw(shaderID, projection, view);
@@ -1002,8 +1026,6 @@ protected:
 	void performTouchDanger(unsigned int touchedBall)
 	{
 		client.async_call("touchDanger", player.id, touchedBall);
-
-		audioSystem.playSound("ding");
 	}
 
 	void performTouchGoal(unsigned int touchedBall)
@@ -1018,7 +1040,7 @@ protected:
 		if (!gameState.hasStarted)
 		{
 			// Test against center ball
-			if (glm::length(handPosition) < COLLISION_RADIUS * 1.8)
+			if (glm::length(handPosition) < START_COLLISION_RADIUS)
 			{
 				performTouchStart();
 			}
@@ -1043,7 +1065,7 @@ protected:
 	void performRelease(glm::vec3& handPosition, glm::vec3& handVelocity)
 	{
 		std::cout << "RELEASE" << glm::length(handVelocity) << std::endl;
-		if (glm::length(handVelocity) > 0.1)
+		if (glm::length(handVelocity) > RELEASE_THRESHOLD)
 		{
 			client.async_call("createBall", player.id, BallData{
 				player.id,
@@ -1124,9 +1146,6 @@ protected:
 		scene->otherRightHandClosed = otherPlayer.rightHandClosed;
 		scene->playerLeftHandClosed = player.leftHandClosed;
 		scene->playerRightHandClosed = player.rightHandClosed;
-
-		// Update relative score
-		gameState.relativeScore = player.score - otherPlayer.score;
 	}
 
 	void updateInput()
@@ -1338,9 +1357,21 @@ protected:
 			gameState.sceneData.balls[i] = sceneData.balls[i];
 		}
 
+		// Play tick sounds
+		if (gameState.prevGameTicks != sceneData.gameTicks)
+		{
+			gameState.prevGameTicks = sceneData.gameTicks;
+			if (sceneData.gameStart && gameState.prevGameTicks >= RUSH_TIME_THRESHOLD)
+			{
+				// Play tick sound
+				audioSystem.playSound("tick");
+			}
+		}
+
 		gameState.sceneData = sceneData;
 		gameState.goalBallIndex = sceneData.goalBallIndex;
 		gameState.dangerBallBits = sceneData.dangerBallBits;
+		gameState.totalScore = sceneData.totalScore;
 		if (gameState.hasStarted != sceneData.gameStart)
 		{
 			gameState.hasStarted = sceneData.gameStart;
@@ -1353,6 +1384,8 @@ protected:
 			{
 				std::cout << "Game Stopeed!" << std::endl;
 				gameState.cooldownTimer = ANIMATION_TIME;
+
+				audioSystem.playSound("ding");
 			}
 		}
 	}

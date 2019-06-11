@@ -8,7 +8,9 @@ struct SceneData
 	std::string dangerBallBits;
 	unsigned int dangerBallCount;
 	bool gameStart;
+	unsigned int gameTicks;
+	int totalScore;
 
 	// rpc Macro to generate serialize code for the struct (Note: for glm object, manually specify x,y,z,w)
-	MSGPACK_DEFINE_MAP(balls, goalBallIndex, dangerBallBits, dangerBallCount, gameStart)
+	MSGPACK_DEFINE_MAP(balls, goalBallIndex, dangerBallBits, dangerBallCount, gameStart, gameTicks, totalScore)
 };
