@@ -40,17 +40,6 @@ const Material material = Material(
 	0.6
 );
 
-const DirLight dirLight = DirLight(
-	vec3(0.5, 0.5, 0.5),
-	vec3(0.7, 0.7, 0)
-);
-
-const PointLight pointLight = PointLight(
-	vec3(0.5, 0.5, 0.5),
-	vec3(0, 0, 0),
-	1.0
-);
-
 vec3 calcDirLight(DirLight light, vec3 normal, vec3 viewDir)
 {
 	vec3 lightDir = normalize(-light.direction);
@@ -92,8 +81,8 @@ void main()
 	vec3 result = color;
 	// material.ambient;
 
-	result += calcDirLight(dirLight, norm, viewDir);
-	result += calcPointLight(pointLight, norm, vertPos, viewDir);
+	result += calcDirLight(DirLight(vec3(0.5, 0.5, 0.5), vec3(0.7, 0.7, 0)), norm, viewDir);
+	result += calcPointLight(PointLight(vec3(0.5, 0.5, 0.5), vec3(0, 0, 0), 1.0), norm, vertPos, viewDir);
 
     fragColor = vec4(result, 1.0);
 }
