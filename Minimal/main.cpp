@@ -1166,6 +1166,7 @@ protected:
 	void updateClap()
 	{
 		PlayerData other = getOtherPlayer();
+		if (other.id <= 0) return;
 
 		updateClapForHands(player.leftHandPosition, player.leftHandVelocity, other.leftHandPosition, other.leftHandVelocity, leftLeftClap);
 		updateClapForHands(player.leftHandPosition, player.leftHandVelocity, other.rightHandPosition, other.rightHandVelocity, leftRightClap);
@@ -1193,6 +1194,7 @@ protected:
 	void updateSlap()
 	{
 		PlayerData other = getOtherPlayer();
+		if (other.id <= 0) return;
 
 		updateSlapForHand(player.leftHandPosition, player.leftHandVelocity, other.headPosition, playerLeftSlap);
 		updateSlapForHand(player.rightHandPosition, player.rightHandVelocity, other.headPosition, playerRightSlap);
